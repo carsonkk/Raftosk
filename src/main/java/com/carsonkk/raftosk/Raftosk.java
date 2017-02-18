@@ -1,58 +1,40 @@
 package main.java.com.carsonkk.raftosk;
 
 import com.beust.jcommander.*;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
+import main.java.com.carsonkk.raftosk.server.Server;
+import main.java.com.carsonkk.raftosk.client.Client;
+import java.rmi.*;
 
 public class Raftosk {
+    @Parameter(names = {"-server", "-s"}, description = "Operate in Server mode")
+    private boolean serverMode;
 
-    @Parameter(names = {"-datacenter", "-d"}, description = "Operate in Datacenter mode")
-    private boolean dcm = false;
+    private int returnValue;
 
-    public static void main(String[] args) {
+    public Raftosk() {
+        serverMode = false;
+        returnValue = 0;
+    }
+
+    public static int main(String[] args) throws RemoteException {
         Raftosk raftosk = new Raftosk();
-
         new JCommander(raftosk, args);
 
-        raftosk.parseCommandLine();
-        raftosk.readConfigFile();
-    }
-
-    public void parseCommandLine() {
-        System.out.println("the flag is " + dcm);
-    }
-
-    public void readConfigFile() {
-        Properties properties = new Properties();
-        InputStream inputStream = null;
-
+        // Parse command line options, determine mode
         try {
-
-            inputStream = new FileInputStream("config.properties");
-
-            // load a properties file
-            properties.load(inputStream);
-
-            // get the property value and print it out
-            System.out.println(properties.getProperty("messageDelay"));
-            System.out.println(properties.getProperty("initialTicketPool"));
-            System.out.println(properties.getProperty("clientListenPort"));
-            System.out.println(properties.getProperty("baseDatacenterListenPort"));
-            System.out.println(properties.getProperty("baseDatacenterAddress"));
-            System.out.println(properties.getProperty("maxDatatcenterCount"));
-
-        } catch (IOException ex) {
-            ex.printStackTrace();
-        } finally {
-            if (inputStream != null) {
-                try {
-                    inputStream.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+            if(raftosk.serverMode == true) {
+                Server server = new Server();
+                raftosk.returnValue = server.main();
+            } else {
+                Client client = new Client();
+                raftosk.returnValue = client.main();
             }
+        } catch (Exception e) {
+            System.out.println("[ERR] An issue occurred while creating a server: " + e.getMessage());
+            e.printStackTrace();
+            raftosk.returnValue = 1;
         }
+
+        return raftosk.returnValue;
     }
 }
