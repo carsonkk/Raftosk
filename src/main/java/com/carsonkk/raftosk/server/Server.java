@@ -1,18 +1,22 @@
 package main.java.com.carsonkk.raftosk.server;
 
+import main.java.com.carsonkk.raftosk.global.RPCInterface;
+
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 
-public class Server extends UnicastRemoteObject implements ServerInterface
+public class Server extends UnicastRemoteObject implements RPCInterface
 {
     private int returnValue;
+    private StateMachine stateMachine;
 
     public Server() throws RemoteException {
         super();
 
         returnValue = 0;
+        stateMachine = new StateMachine();
     }
 
     public int add(int a, int b) throws RemoteException {
@@ -30,7 +34,7 @@ public class Server extends UnicastRemoteObject implements ServerInterface
         {
             Registry reg = LocateRegistry.createRegistry(9001);
             Server dc = new Server();
-            reg.rebind("ServerInterface", dc);
+            reg.rebind("RPCInterface", dc);
             System.out.println("Server ready...");
         } catch (Exception e) {
             System.out.println("[ERR] An issue occurred while the server was initializing its RMI: " + e.getMessage());

@@ -18,7 +18,8 @@ public class HandleProperties {
             properties.load(inputStream);
 
             // get the property value and print it out
-            System.out.println(properties.getProperty("messageDelay"));
+            System.out.println(properties.getProperty("minimumElectionTimeout"));
+            System.out.println(properties.getProperty("maximumElectionTimeout"));
             System.out.println(properties.getProperty("initialTicketPool"));
             System.out.println(properties.getProperty("clientListenPort"));
             System.out.println(properties.getProperty("baseDatacenterListenPort"));
