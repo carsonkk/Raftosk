@@ -1,5 +1,6 @@
 package main.java.com.carsonkk.raftosk.global;
 
+// Metadata for a command that can be issued from a client to a server
 public class Command {
     private CommandType commandType;
     private ChangeType changeType;

@@ -10,6 +10,7 @@ public class ServerProperties {
     private static int maxServerCount;
     private static int minElectionTimeout;
     private static int maxElectionTimeout;
+    private static int heartbeatFrequency;
     private static int baseServerPort;
     private static String baseServerAddress;
 
@@ -23,6 +24,10 @@ public class ServerProperties {
 
     public static int getMinElectionTimeout() {
         return minElectionTimeout;
+    }
+
+    public static int getHeartbeatFrequency() {
+        return heartbeatFrequency;
     }
 
     public static int getMaxElectionTimeout() {
@@ -51,6 +56,7 @@ public class ServerProperties {
             maxServerCount = Integer.parseInt(properties.getProperty("maxServerCount"));
             minElectionTimeout = Integer.parseInt(properties.getProperty("minElectionTimeout"));
             maxElectionTimeout = Integer.parseInt(properties.getProperty("maxElectionTimeout"));
+            heartbeatFrequency = Integer.parseInt(properties.getProperty("heartbeatFrequency"));
             baseServerPort = Integer.parseInt(properties.getProperty("baseServerPort"));
             baseServerAddress = properties.getProperty("baseServerAddress");
         }

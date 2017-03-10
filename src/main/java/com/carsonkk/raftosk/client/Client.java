@@ -1,9 +1,7 @@
 package main.java.com.carsonkk.raftosk.client;
 
-import main.java.com.carsonkk.raftosk.global.ChangeType;
-import main.java.com.carsonkk.raftosk.global.Command;
-import main.java.com.carsonkk.raftosk.global.CommandType;
-import main.java.com.carsonkk.raftosk.global.RPCInterface;
+import main.java.com.carsonkk.raftosk.global.*;
+import main.java.com.carsonkk.raftosk.server.Server;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -11,6 +9,7 @@ import java.io.InputStreamReader;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 
+// Top-level user interface for interacting with server system
 public class Client {
 
     protected boolean quitCommand;
@@ -21,24 +20,39 @@ public class Client {
         invalidCommand = false;
     }
 
-    public int run() throws IOException {
+    public void handleClient() throws IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
-        RPCInterface s;
+        RPCInterface server;
+        int serverId;
         Command command = new Command();
 
+        // Initial heading
         System.out.println(" /''''''''''''''''''''''''''''\\");
         System.out.println("|      Welcome to Raftosk      |");
         System.out.println(" \\............................/");
         System.out.println();
         System.out.println();
 
-        s = connect("127.0.0.1", 9001, "RPCInterface");
-        if(s == null) {
-            return 1;
+        // Read in which server to connect to
+        System.out.println("Please enter the id of the server you would like to connect to");
+        System.out.println();
+        try {
+            serverId = Integer.parseInt(reader.readLine());
+        }
+        catch(NumberFormatException e) {
+            System.out.println("[ERR] Invalid user input: " + e.getMessage());
+            e.printStackTrace();
+            return;
         }
 
-        //Handle client-server interaction
+        // Connect to the server
+        server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() + serverId);
+        if(server == null) {
+            return;
+        }
+
+        // Handle client-server interaction
         while (true) {
             // Read in what command to send to the server
             System.out.println("Please enter a command to send to the server");
@@ -48,11 +62,12 @@ public class Client {
             input = input.toLowerCase();
             System.out.println();
 
+            // Check for invalid commands or the quit command
             if(!processCommandRequest(input, command)) {
                 // Quit the run if "quit" was received
                 if(quitCommand) {
                     System.out.println("Closing connection with the server and quitting...");
-                    return 0;
+                    return;
                 }
 
                 // Restart loop if a valid command was not given
@@ -62,25 +77,11 @@ public class Client {
                     continue;
                 }
             }
+
+            // Submit command
+            server.submitCommandRPC(command);
+            break;
         }
-    }
-
-    public RPCInterface connect(String address, int port, String name)
-    {
-        Registry reg;
-        RPCInterface s;
-
-        //Attempt to connect to the specified server
-        try {
-            reg = LocateRegistry.getRegistry(address, port);
-            s = (RPCInterface)reg.lookup(name);
-        } catch (Exception e) {
-            System.out.println("[ERR] An issue occurred while the client was connecting to the server: " + e.getMessage());
-            e.printStackTrace();
-            return null;
-        }
-
-        return s;
     }
 
     public boolean processCommandRequest(String commandInput, Command command) throws IOException {

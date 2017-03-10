@@ -12,15 +12,12 @@ public class Raftosk {
     @Parameter(names = {"-admin", "-a"}, description = "If operating in client mode, act as an administrator")
     private boolean clientTypeParam;
 
-    @Parameter(names = {"-server", "-s"}, description = "Specify this server's id")
+    @Parameter(names = {"-server", "-s"}, description = "Specify this server's id", validateWith = ServerIdValidation.class)
     private int serverId;
-
-    private int returnValue;
 
     public Raftosk() {
         clientTypeParam = false;
         serverId = -1;
-        returnValue = 0;
     }
 
     public static void main(String[] args) throws RemoteException {
@@ -49,25 +46,24 @@ public class Raftosk {
             // Operate in server mode
             else if(raftosk.serverId != -1) {
                 Server server = new Server(raftosk.serverId);
-                raftosk.returnValue = server.initializeServer();
+                server.initializeServer();
             }
             // Operate in client mode
             else {
                 // Operate as an Administrator
                 if(raftosk.clientTypeParam) {
                     Administrator administrator = new Administrator();
-                    raftosk.returnValue = administrator.run();
+                    administrator.handleClient();
                 }
                 // Operate as a Customer
                 else {
                     Customer customer = new Customer();
-                    raftosk.returnValue = customer.run();
+                    customer.handleClient();
                 }
             }
         } catch (Exception e) {
             System.out.println("[ERR] An issue occurred while creating a server: " + e.getMessage());
             e.printStackTrace();
-            raftosk.returnValue = 1;
         }
     }
 }
