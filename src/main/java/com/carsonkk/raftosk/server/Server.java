@@ -1,47 +1,41 @@
 package main.java.com.carsonkk.raftosk.server;
 
 import main.java.com.carsonkk.raftosk.global.RPCInterface;
+import main.java.com.carsonkk.raftosk.global.ServerProperties;
 
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
 
-public class Server extends UnicastRemoteObject implements RPCInterface
-{
-    private int returnValue;
+public class Server {
+    private int serverId;
     private StateMachine stateMachine;
+    private ConsensusModule consensusModule;
 
     public Server() throws RemoteException {
-        super();
-
-        returnValue = 0;
-        stateMachine = new StateMachine();
+        this.serverId = -1;
+        this.stateMachine = new StateMachine();
+        this.consensusModule = new ConsensusModule();
     }
 
-    public int add(int a, int b) throws RemoteException {
-        return a + b;
+    public Server(int serverId) throws RemoteException {
+        this();
+        this.serverId = serverId;
     }
 
-    public int sub(int a, int b) throws RemoteException {
-        return a - b;
-    }
-
-    public static int main() throws RemoteException {
-        Server server = new Server();
-
-        try
-        {
-            Registry reg = LocateRegistry.createRegistry(9001);
-            Server dc = new Server();
-            reg.rebind("RPCInterface", dc);
-            System.out.println("Server ready...");
-        } catch (Exception e) {
-            System.out.println("[ERR] An issue occurred while the server was initializing its RMI: " + e.getMessage());
-            e.printStackTrace();
-            server.returnValue = 1;
+    public int initializeServer() throws RemoteException {
+        // Register server with RMI, use base port + id as port value
+        if(this.consensusModule.setupConnection(ServerProperties.getBaseServerPort() + this.serverId) == 1) {
+            return 1;
+        }
+        // Update state to be a follower
+        synchronized (this.stateMachine.getCurrentState()) {
+            this.stateMachine.setCurrentState(StateType.FOLLOWER);
         }
 
-        return server.returnValue;
+        return 0;
     }
+
 }

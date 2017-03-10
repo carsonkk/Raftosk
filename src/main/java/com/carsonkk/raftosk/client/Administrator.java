@@ -1,5 +1,6 @@
 package main.java.com.carsonkk.raftosk.client;
 
+import main.java.com.carsonkk.raftosk.global.ChangeType;
 import main.java.com.carsonkk.raftosk.global.Command;
 import main.java.com.carsonkk.raftosk.global.CommandType;
 import main.java.com.carsonkk.raftosk.global.RPCInterface;
@@ -16,47 +17,84 @@ public class Administrator extends Client {
         super();
     }
 
-    public int run() throws IOException {
+    public boolean processCommandRequest(String commandInput, Command command) throws IOException
+    {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
-        RPCInterface s;
-        Command command = new Command();
 
-        System.out.println("/''''''''''''''''''''''''''''\\");
-        System.out.println("|     Welcome to Raftosk     |");
-        System.out.println("\\............................/");
-        System.out.println();
-        System.out.println();
+        if(super.processCommandRequest(commandInput, command)) {
+            return false;
+        }
+        else {
+            switch(commandInput) {
+                case "show": {
+                    command.setCommandType(CommandType.SHOW);
+                    System.out.println("Sending request to server to display metadata, please wait...");
+                    System.out.println();
+                    break;
+                }
+                case "change": {
+                    command.setCommandType(CommandType.CHANGE);
+                    System.out.println("Would you like to add new servers or delete existing ones?");
+                    System.out.println();
+                    input = reader.readLine();
+                    input = input.toLowerCase();
+                    System.out.println();
 
-        s = connect("127.0.0.1", 9001, "RPCInterface");
-        if(s == null) {
-            return 1;
+                    switch(input) {
+                        case "add": {
+                            System.out.println("How many new servers would you like to add?");
+                            System.out.println();
+
+                            try {
+                                command.setServerAmount(Integer.parseInt(reader.readLine()));
+                            }
+                            catch(NumberFormatException e) {
+                                System.out.println("[ERR] Invalid user input: " + e.getMessage());
+                                e.printStackTrace();
+                                return false;
+                            }
+                            command.setChangeType(ChangeType.ADD);
+
+                            System.out.println();
+                            System.out.println("Sending request to add " + command.getServerAmount() + " servers to the system, " +
+                                    "please wait...");
+                            System.out.println();
+                            break;
+                        }
+                        case "delete": {
+                            System.out.println("How many servers would you like to delete?");
+                            System.out.println();
+
+                            try {
+                                command.setServerAmount(Integer.parseInt(reader.readLine()));
+                            } catch (NumberFormatException e) {
+                                System.out.println("[ERR] Invalid user input: " + e.getMessage());
+                                e.printStackTrace();
+                                return false;
+                            }
+                            command.setChangeType(ChangeType.DELETE);
+
+                            System.out.println();
+                            System.out.println("Sending request to delete " + command.getServerAmount() + " servers from the system, " +
+                                    "please wait...");
+                            System.out.println();
+                            break;
+                        }
+                        default: {
+                            invalidCommand = true;
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                default: {
+                    invalidCommand = true;
+                    return false;
+                }
+            }
         }
 
-        //Handle client-server interaction
-        while (true) {
-            // Read in what command to send to the server
-            System.out.println("Please enter a command to send to the server");
-            System.out.println("(for help with commands, type \"help\")");
-            System.out.println();
-            input = reader.readLine();
-            input = input.toLowerCase();
-            System.out.println();
-
-            processCommandRequest(ClientType.ADMINISTRATOR, input, command);
-
-            // Quit the run if "quit" was received
-            if(quitCommand) {
-                System.out.println("Closing connection with the server and quitting...");
-                return 0;
-            }
-
-            // Restart loop if a valid command was not given
-            if(invalidCommand) {
-                System.out.println("An invalid command was entered, please try again");
-                invalidCommand = false;
-                continue;
-            }
-        }
+        return true;
     }
 }

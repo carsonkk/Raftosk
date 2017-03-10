@@ -3,44 +3,62 @@ package main.java.com.carsonkk.raftosk;
 import com.beust.jcommander.*;
 import main.java.com.carsonkk.raftosk.client.Administrator;
 import main.java.com.carsonkk.raftosk.client.Customer;
+import main.java.com.carsonkk.raftosk.global.ServerProperties;
 import main.java.com.carsonkk.raftosk.server.Server;
 import main.java.com.carsonkk.raftosk.client.Client;
 import java.rmi.*;
 
 public class Raftosk {
-    @Parameter(names = {"-server", "-s"}, description = "Operate in server mode")
-    private boolean serverModeParam;
-
     @Parameter(names = {"-admin", "-a"}, description = "If operating in client mode, act as an administrator")
     private boolean clientTypeParam;
+
+    @Parameter(names = {"-server", "-s"}, description = "Specify this server's id")
+    private int serverId;
 
     private int returnValue;
 
     public Raftosk() {
-        serverModeParam = false;
         clientTypeParam = false;
+        serverId = -1;
         returnValue = 0;
     }
 
-    public static int main(String[] args) throws RemoteException {
+    public static void main(String[] args) throws RemoteException {
         Raftosk raftosk = new Raftosk();
-        new JCommander(raftosk, args);
+        String usage = "    javac raftosk [-s serverId] | [-a]";
+
+        // Read in command line options
+        try {
+            new JCommander(raftosk, args);
+        }
+        catch(ParameterException e) {
+            System.out.println("[ERR] Invalid or missing arguments. Usage:");
+            System.out.println(usage);
+        }
+
+        // Read in the properties file values
+        ServerProperties.readPropertiesFile("config.properties");
 
         // Parse command line options, determine mode
         try {
-            if(raftosk.serverModeParam && raftosk.clientTypeParam) {
+            // Both options were specified, invalid
+            if(raftosk.serverId != -1 && raftosk.clientTypeParam) {
                 System.out.println("[ERR] Invalid or missing arguments. Usage:");
-                System.out.println("javac raftosk [-s][-a]");
+                System.out.println(usage);
             }
-            else if(raftosk.serverModeParam) {
-                Server server = new Server();
-                raftosk.returnValue = server.main();
+            // Operate in server mode
+            else if(raftosk.serverId != -1) {
+                Server server = new Server(raftosk.serverId);
+                raftosk.returnValue = server.initializeServer();
             }
+            // Operate in client mode
             else {
+                // Operate as an Administrator
                 if(raftosk.clientTypeParam) {
                     Administrator administrator = new Administrator();
                     raftosk.returnValue = administrator.run();
                 }
+                // Operate as a Customer
                 else {
                     Customer customer = new Customer();
                     raftosk.returnValue = customer.run();
@@ -51,7 +69,5 @@ public class Raftosk {
             e.printStackTrace();
             raftosk.returnValue = 1;
         }
-
-        return raftosk.returnValue;
     }
 }
