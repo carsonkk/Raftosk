@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
-public class ServerProperties {
+public final class ServerProperties {
     private static int initialTicketPool;
     private static int maxServerCount;
     private static int minElectionTimeout;
@@ -26,12 +26,12 @@ public class ServerProperties {
         return minElectionTimeout;
     }
 
-    public static int getHeartbeatFrequency() {
-        return heartbeatFrequency;
-    }
-
     public static int getMaxElectionTimeout() {
         return maxElectionTimeout;
+    }
+
+    public static int getHeartbeatFrequency() {
+        return heartbeatFrequency;
     }
 
     public static int getBaseServerPort() {

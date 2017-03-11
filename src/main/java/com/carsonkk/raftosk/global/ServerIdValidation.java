@@ -1,8 +1,7 @@
-package main.java.com.carsonkk.raftosk;
+package main.java.com.carsonkk.raftosk.global;
 
 import com.beust.jcommander.IParameterValidator;
 import com.beust.jcommander.ParameterException;
-import main.java.com.carsonkk.raftosk.global.ServerProperties;
 
 public class ServerIdValidation implements IParameterValidator {
     public void validate(String name, String value) throws ParameterException{

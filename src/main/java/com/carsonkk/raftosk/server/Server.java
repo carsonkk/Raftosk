@@ -8,6 +8,9 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 // Top-level server functionality
 public class Server {
@@ -15,6 +18,7 @@ public class Server {
 
     private int serverId;
     private StateMachine stateMachine;
+    private Future<Void> stateMachineFuture;
     private HandleRPC serverBinding;
 
     //endregion
@@ -24,6 +28,7 @@ public class Server {
     public Server(int serverId) {
         this.serverId = serverId;
         this.stateMachine = new StateMachine(this);
+        this.stateMachineFuture = null;
         try {
             serverBinding = new HandleRPC(this);
         }
@@ -59,10 +64,14 @@ public class Server {
             e.printStackTrace();
         }
 
-        // Update state to be a follower
+        // Setup state to be a follower
         synchronized (this.stateMachine.getCurrentState()) {
             this.stateMachine.setCurrentState(StateType.FOLLOWER);
         }
+
+        // Start up state machine
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        this.stateMachineFuture = executorService.submit(this.stateMachine);
     }
 
     //endregion

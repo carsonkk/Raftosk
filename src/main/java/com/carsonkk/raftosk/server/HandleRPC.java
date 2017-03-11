@@ -131,7 +131,18 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
     public ReturnValueRPC appendEntriesRPC(int leaderId, int leaderTerm, int prevLogIndex, int prevLogTerm, List<LogEntry> entries, int lastCommitIndex)
             throws RemoteException {
-        return null;
+        ReturnValueRPC ret = new ReturnValueRPC();
+
+        if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
+            ret.setCondition(false);
+        }
+        else {
+            ret.setCondition(true);
+        }
+
+        ret.setValue(this.server.getStateMachine().getCurrentTerm());
+        this.server.getStateMachine().getTimeoutCondition().signal();
+        return ret;
     }
 
     public boolean setupConnection() throws RemoteException {
@@ -139,7 +150,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         {
             Registry reg = LocateRegistry.createRegistry(ServerProperties.getBaseServerPort() + this.server.getServerId());
             reg.rebind("RPCInterface", this);
-            System.out.println("Server ready...");
+            System.out.println("[LOG-1] Server ready...");
         } catch (Exception e) {
             System.out.println("[ERR] An issue occurred while the server was initializing its RMI: " + e.getMessage());
             e.printStackTrace();
