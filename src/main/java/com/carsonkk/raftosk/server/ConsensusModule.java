@@ -1,37 +1,37 @@
 package main.java.com.carsonkk.raftosk.server;
 
-import main.java.com.carsonkk.raftosk.global.Command;
-import main.java.com.carsonkk.raftosk.global.CommandType;
-import main.java.com.carsonkk.raftosk.global.RPCInterface;
+import main.java.com.carsonkk.raftosk.global.SysLog;
 
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
-import java.rmi.server.UnicastRemoteObject;
-import java.util.ArrayList;
+import java.util.concurrent.Callable;
 
-// Manage proper data replication within server log
-public class ConsensusModule implements Runnable {
-    private Thread thread;
-    private String threadName;
+// Manage proper data replication within server transaction log
+public class ConsensusModule implements Callable<Void> {
+    //region Private Members
+
     private int serverId;
 
+    //endregion
+
+    //region Constructors
+
     public ConsensusModule() {
-        super();
-        threadName = "ConsensusModuleThread";
-        thread = new Thread(this, threadName);
+        SysLog.logger.finer("Created new consensus module");
     }
 
     public ConsensusModule(int serverId) {
         this();
         this.serverId = serverId;
+        SysLog.logger.finer("Created new consensus module with server ID " + this.serverId);
     }
 
-    public Thread getThread() {
-        return this.thread;
-    }
+    //endregion
+
+    //region Public Methods
 
     @Override
-    public void run() {
-
+    public Void call() {
+        return null;
     }
+
+    //endregion
 }

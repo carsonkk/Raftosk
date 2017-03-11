@@ -38,19 +38,16 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
     //region Constructors
 
-    public HandleRPC() throws RemoteException {
-        super();
-    }
-
     public HandleRPC(Server server) throws RemoteException {
-        this();
         this.server = server;
+        SysLog.logger.finer("Created new RPC handler with server " + this.server);
     }
 
     public HandleRPC(Server server, RPCType rpc, RPCInterface remoteServer) throws RemoteException {
         this(server);
         this.rpc = rpc;
         this.remoteServer = remoteServer;
+        SysLog.logger.finer("Created new RPC handler with RPC " + this.rpc + " and remote server " + this.remoteServer);
     }
 
     public HandleRPC(Server server, RPCType rpc, RPCInterface remoteServer, Command command) throws RemoteException {

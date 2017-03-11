@@ -172,8 +172,9 @@ public class StateMachine implements Callable<Void> {
                                     }
 
                                     // Submit callable and add future to list
-                                    callable = new HandleRPC(this.server, RPCType.REQUESTVOTE, remoteServer, this.server.getServerId(),
-                                            this.currentTerm, this.lastLogIndex, this.lastLogTerm);
+                                    callable = new HandleRPC(this.server, RPCType.REQUESTVOTE, remoteServer,
+                                            this.server.getServerId(), this.currentTerm, this.lastLogIndex,
+                                            this.lastLogTerm);
                                     Future<ReturnValueRPC> future = executorService.submit(callable);
                                     returnList.add(future);
                                 }
@@ -242,8 +243,8 @@ public class StateMachine implements Callable<Void> {
                                     }
 
                                     // Submit callable and add future to list
-                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer, this.server.getServerId(),
-                                            this.currentTerm, 0, 0, null, 0);
+                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
+                                            this.server.getServerId(), this.currentTerm, 0, 0, null, 0);
                                     Future<ReturnValueRPC> future = executorService.submit(callable);
                                     returnList.add(future);
                                 }
