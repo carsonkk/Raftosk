@@ -1,26 +1,37 @@
 package main.java.com.carsonkk.raftosk.client;
 
 import main.java.com.carsonkk.raftosk.global.*;
-import main.java.com.carsonkk.raftosk.server.Server;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
 
 // Top-level user interface for interacting with server system
 public class Client {
+    //region Protected Members
 
     protected boolean quitCommand;
     protected boolean invalidCommand;
 
+    //endregion
+
+    //region Constructors
+
     public Client() {
         quitCommand = false;
         invalidCommand = false;
+
+        SysLog.logger.finer("Created new Client");
     }
 
+    //endregion
+
+    //region Public Methods
+
+    // Top-level handler for client interactions, delegates between Administrator and Customer options
     public void handleClient() throws IOException {
+        SysLog.logger.fine("Entering method");
+
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
         RPCInterface server;
@@ -41,14 +52,16 @@ public class Client {
             serverId = Integer.parseInt(reader.readLine());
         }
         catch(NumberFormatException e) {
-            System.out.println("[ERR] Invalid user input: " + e.getMessage());
-            e.printStackTrace();
+            System.out.println("Invalid user input: " + e.getMessage());
+            SysLog.logger.warning("Invalid user input: " + e.getMessage());
+            SysLog.logger.fine("Exiting method");
             return;
         }
 
         // Connect to the server
         server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() + serverId);
         if(server == null) {
+            SysLog.logger.fine("Exiting method");
             return;
         }
 
@@ -59,7 +72,7 @@ public class Client {
             System.out.println("(for help with commands, type \"help\")");
             System.out.println();
             input = reader.readLine();
-            input = input.toLowerCase();
+            input = input.toUpperCase();
             System.out.println();
 
             // Check for invalid commands or the quit command
@@ -67,6 +80,7 @@ public class Client {
                 // Quit the run if "quit" was received
                 if(quitCommand) {
                     System.out.println("Closing connection with the server and quitting...");
+                    SysLog.logger.fine("Exiting method");
                     return;
                 }
 
@@ -82,15 +96,26 @@ public class Client {
             server.submitCommandRPC(command);
             break;
         }
+
+        SysLog.logger.fine("Exiting method");
     }
 
+    // Process commands in the cases of quiting and helping
     public boolean processCommandRequest(String commandInput, Command command) throws IOException {
+        SysLog.logger.fine("Entering method");
+
         switch (commandInput) {
-            case "quit": {
+            case "QUIT": {
+                SysLog.logger.info("Received QUIT command");
+
                 quitCommand = true;
+
+                SysLog.logger.fine("Exiting method");
                 return true;
             }
-            case "help": {
+            case "HELP": {
+                SysLog.logger.info("Received HELP command");
+
                 System.out.println("To select a command to send, type one of the following when prompted:");
                 System.out.println("    - \"buy\": request to purchase tickets from the connected server (for Customers only)");
                 System.out.println("    - \"show\": print out the current state of the state machine as well as the committed logs " +
@@ -99,10 +124,15 @@ public class Client {
                 System.out.println("    - \"help\": print out this information again");
                 System.out.println("    - \"quit\": disconnect from the server and quit");
                 System.out.println();
+
+                SysLog.logger.fine("Exiting method");
                 return true;
             }
         }
 
+        SysLog.logger.fine("Exiting method");
         return false;
     }
+
+    //endregion
 }

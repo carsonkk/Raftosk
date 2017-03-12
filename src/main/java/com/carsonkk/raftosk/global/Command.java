@@ -2,17 +2,29 @@ package main.java.com.carsonkk.raftosk.global;
 
 // Metadata for a command that can be issued from a client to a server
 public class Command {
+    //region Private Members
+
     private CommandType commandType;
     private ChangeType changeType;
     private int ticketAmount;
     private int serverAmount;
+
+    //endregion
+
+    //region Constructors
 
     public Command() {
         commandType = CommandType.NULL;
         changeType = ChangeType.NULL;
         ticketAmount = -1;
         serverAmount = -1;
+
+        SysLog.logger.finer("Created command");
     }
+
+    //endregion
+
+    //region Getters/Setters
 
     public CommandType getCommandType() {
         return this.commandType;
@@ -45,4 +57,6 @@ public class Command {
     public void setServerAmount(int serverAmount) {
         this.serverAmount = serverAmount;
     }
+
+    //endregion
 }

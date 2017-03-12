@@ -1,10 +1,21 @@
 package main.java.com.carsonkk.raftosk.global;
 
-import java.util.logging.*;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
+// Global project handler for all logging
 public final class SysLog {
+    //region Public Members
+
     public static Logger logger;
 
+    //endregion
+
+    //region Public Methods
+
+    // Initialize the logger, handlers, and formatter
     public static void setup(int level) {
         logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
         logger.setUseParentHandlers(false);
@@ -53,4 +64,6 @@ public final class SysLog {
         handler.setLevel(logger.getLevel());
         logger.addHandler(handler);
     }
+
+    //endregion
 }

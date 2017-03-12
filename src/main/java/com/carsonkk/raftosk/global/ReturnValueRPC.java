@@ -1,5 +1,6 @@
 package main.java.com.carsonkk.raftosk.global;
 
+// Object returned by any RPC call, contains integer and boolean values for result handling
 public class ReturnValueRPC {
     //region Private Members
 
@@ -13,11 +14,15 @@ public class ReturnValueRPC {
     public ReturnValueRPC() {
         this.value = 0;
         this.condition = false;
+
+        SysLog.logger.finer("Created a new return value RPC");
     }
 
     public ReturnValueRPC(int value, boolean condition) {
         this.value = value;
         this.condition = condition;
+
+        SysLog.logger.finer("Created a new return value RPC with value " + this.value + " and condition " + this.condition);
     }
 
     //endregion

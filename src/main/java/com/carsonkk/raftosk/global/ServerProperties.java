@@ -5,7 +5,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
+// Handles reading in and storing configuration information from the .properties file
 public final class ServerProperties {
+    //region Private Members
+
     private static int initialTicketPool;
     private static int maxServerCount;
     private static int minElectionTimeout;
@@ -13,6 +16,10 @@ public final class ServerProperties {
     private static int heartbeatFrequency;
     private static int baseServerPort;
     private static String baseServerAddress;
+
+    //endregion
+
+    //region Getters/Setters
 
     public static int getIntialTicketPool() {
         return initialTicketPool;
@@ -42,6 +49,11 @@ public final class ServerProperties {
         return baseServerAddress;
     }
 
+    //endregion
+
+    //region Public Methods
+
+    // Populates each property field from the file data
     public static void readPropertiesFile(String filename) {
         Properties properties = new Properties();
         InputStream inputStream = null;
@@ -61,7 +73,7 @@ public final class ServerProperties {
             baseServerAddress = properties.getProperty("baseServerAddress");
         }
         catch (IOException e) {
-            System.out.println("[ERR] An error occurred while opening/reading in the properties file values: " + e.getMessage());
+            System.out.println("An error occurred while opening/reading in the properties file values: " + e.getMessage());
             e.printStackTrace();
         }
         finally {
@@ -70,10 +82,12 @@ public final class ServerProperties {
                     inputStream.close();
                 }
                 catch (IOException e) {
-                    System.out.println("[ERR] An error occurred while closing the properties file stream: " + e.getMessage());
+                    System.out.println("An error occurred while closing the properties file stream: " + e.getMessage());
                     e.printStackTrace();
                 }
             }
         }
     }
+
+    //endregion
 }

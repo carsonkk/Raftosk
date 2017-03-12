@@ -34,7 +34,7 @@ public class LogEntry {
         this(index);
         this.term = term;
         this.serverId = serverId;
-        SysLog.logger.finer("Created new log entry with index " + this.index + ", term " + this.term + ", and server ID " + this.serverId);
+        SysLog.logger.finer("Created new log entry with term " + this.term + " and server ID " + this.serverId);
     }
 
     //endregion

@@ -49,15 +49,16 @@ public class StateMachine implements Callable<Void> {
         this.prevLogTerm = 0;
         this.commitIndex = 0;
         this.votedFor = -1;
-
         // Leave with a serverId of -1, creates initial log sync point
         log.add(new LogEntry(this.lastLogIndex, this.lastLogTerm, -1));
+        SysLog.logger.finer("Created new state machine");
     }
 
     public StateMachine(Server server) {
         this();
         this.server = server;
         onlineServerIds.add(this.server.getServerId());
+        SysLog.logger.finer("Created new state machine with server " + this.server);
     }
 
     //endregion
@@ -118,6 +119,8 @@ public class StateMachine implements Callable<Void> {
 
     @Override
     public Void call() throws RemoteException {
+        SysLog.logger.fine("Entering method");
+
         ExecutorService executorService;
         List<Future<ReturnValueRPC>> returnList;
         Callable<ReturnValueRPC> callable;
@@ -135,7 +138,8 @@ public class StateMachine implements Callable<Void> {
                 synchronized (this.currentState) {
                     switch(this.currentState) {
                         case FOLLOWER: {
-                            // If no heartbeat before timeout, become candidate, otherwise restart timeout
+                            SysLog.logger.fine("Currently in FOLLOWER state");
+
                             this.lock.lock();
                             heartbeatReceived = false;
                             electionTimeout = getRandomElectionTimeout();
@@ -144,15 +148,20 @@ public class StateMachine implements Callable<Void> {
                                     heartbeatReceived = timeoutCondition.await(electionTimeout, TimeUnit.MILLISECONDS);
                                 }
                                 if(!heartbeatReceived) {
+                                    SysLog.logger.info("Switching state from FOLLOWER to CANDIDATE");
                                     this.currentState = StateType.CANDIDATE;
                                 }
                             }
                             finally {
                                 this.lock.unlock();
                             }
+
+                            SysLog.logger.fine("Finished execution in FOLLOWER state");
                             break;
                         }
                         case CANDIDATE: {
+                            SysLog.logger.fine("Currently in CANDIDATE state");
+
                             this.lock.lock();
                             this.currentTerm++;
                             this.votedFor = this.server.getServerId();
@@ -168,6 +177,8 @@ public class StateMachine implements Callable<Void> {
                                     remoteServer = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
                                             ServerProperties.getBaseServerPort() + i);
                                     if(remoteServer == null) {
+                                        SysLog.logger.info("Server " + i +
+                                                " is currently offline, couldn't send vote request RPC");
                                         continue;
                                     }
 
@@ -177,6 +188,7 @@ public class StateMachine implements Callable<Void> {
                                             this.lastLogTerm);
                                     Future<ReturnValueRPC> future = executorService.submit(callable);
                                     returnList.add(future);
+                                    SysLog.logger.info("Added server " + i + " to the list of vote requested servers");
                                 }
                             }
 
@@ -189,6 +201,7 @@ public class StateMachine implements Callable<Void> {
                                 for(Future<ReturnValueRPC> f : returnList) {
                                     try {
                                         if(f.isDone()) {
+                                            SysLog.logger.info("Vote request completed");
                                             ret = f.get();
                                             if(ret.getCondition()) {
                                                 votesReceived++;
@@ -200,16 +213,22 @@ public class StateMachine implements Callable<Void> {
                                             returnList.remove(f);
                                         }
                                     }
-                                    catch (InterruptedException | ExecutionException e) {
+                                    catch (Exception e) {
+                                        SysLog.logger.warning("State machine was interrupted during execution: " +
+                                                e.getMessage());
                                         e.printStackTrace();
                                     }
                                 }
+
                                 // Handle stepping down if an existing candidate or leader was found
                                 if(ret != null && ret.getValue() > this.currentTerm) {
+                                    SysLog.logger.info("Discovered a higher term while requesting votes,  stepping down");
                                     this.currentTerm = ret.getValue();
+                                    SysLog.logger.info("Switching state from CANDIDATE to FOLLOWER");
                                     this.currentState = StateType.FOLLOWER;
                                     break;
                                 }
+
                                 // Finish keeping track of time, update electionTimeout
                                 endTime = System.nanoTime();
                                 electionTimeout -= ((endTime - startTime)/1000000);
@@ -218,20 +237,25 @@ public class StateMachine implements Callable<Void> {
                             // Only check if still a candidate
                             if(this.currentState == StateType.CANDIDATE) {
                                 if(votesReceived >= majorityVotes) {
+                                    SysLog.logger.info("Switching state from CANDIDATE to LEADER");
                                     this.currentState = StateType.LEADER;
                                 }
                             }
 
                             executorService.shutdown();
                             this.lock.unlock();
+
+                            SysLog.logger.fine("Finished execution in CANDIDATE state");
                             break;
                         }
                         case LEADER: {
+                            SysLog.logger.fine("Currently in LEADER state");
+
                             this.lock.lock();
                             executorService = Executors.newFixedThreadPool(ServerProperties.getMaxServerCount());
                             returnList = new ArrayList<>();
 
-                            // Send RequestVoteRPCs to all possible servers
+                            // Send AppendEntriesRPCs to all possible servers
                             for(int i = 1; i < ServerProperties.getMaxServerCount(); i++) {
                                 // Don't send vote for this server
                                 if(i != this.server.getServerId()) {
@@ -239,6 +263,8 @@ public class StateMachine implements Callable<Void> {
                                     remoteServer = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
                                             ServerProperties.getBaseServerPort() + i);
                                     if(remoteServer == null) {
+                                        SysLog.logger.info("Server " + i +
+                                                " is currently offline, couldn't send append entries RPC");
                                         continue;
                                     }
 
@@ -247,6 +273,7 @@ public class StateMachine implements Callable<Void> {
                                             this.server.getServerId(), this.currentTerm, 0, 0, null, 0);
                                     Future<ReturnValueRPC> future = executorService.submit(callable);
                                     returnList.add(future);
+                                    SysLog.logger.info("Added server " + i + " to the list of appended entry servers");
                                 }
                             }
 
@@ -259,6 +286,7 @@ public class StateMachine implements Callable<Void> {
                                 for(Future<ReturnValueRPC> f : returnList) {
                                     try {
                                         if(f.isDone()) {
+                                            SysLog.logger.info("Append entry completed");
                                             ret = f.get();
                                             if(ret.getValue() > this.currentTerm) {
                                                 break;
@@ -267,13 +295,17 @@ public class StateMachine implements Callable<Void> {
                                             returnList.remove(f);
                                         }
                                     }
-                                    catch (InterruptedException | ExecutionException e) {
+                                    catch (Exception e) {
+                                        SysLog.logger.warning("State machine was interrupted during execution: " +
+                                                e.getMessage());
                                         e.printStackTrace();
                                     }
                                 }
                                 // Handle stepping down if an existing candidate or leader was found
                                 if(ret != null && ret.getValue() > this.currentTerm) {
+                                    SysLog.logger.info("Discovered a server with a higher term, stepping down");
                                     this.currentTerm = ret.getValue();
+                                    SysLog.logger.info("Switching state from LEADER to FOLLOWER");
                                     this.currentState = StateType.FOLLOWER;
                                     break;
                                 }
@@ -284,10 +316,12 @@ public class StateMachine implements Callable<Void> {
 
                             Thread.sleep(ServerProperties.getHeartbeatFrequency());
                             this.lock.unlock();
+
+                            SysLog.logger.fine("Finished execution in LEADER state");
                             break;
                         }
                         default: {
-                            System.out.println("[ERROR] State machine entered in an invalid state");
+                            SysLog.logger.severe("The state machine entered in an invalid state: " + this.currentState);
                             break;
                         }
                     }
@@ -295,10 +329,11 @@ public class StateMachine implements Callable<Void> {
             }
         }
         catch(InterruptedException e) {
-            System.out.println("[ERR] The state machine thread was interrupted: " + e.getMessage());
+            SysLog.logger.severe("The state machine thread was interrupted: " + e.getMessage());
             e.printStackTrace();
         }
 
+        SysLog.logger.fine("Exiting method");
         return null;
     }
 
