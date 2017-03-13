@@ -34,9 +34,10 @@ public class Client {
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
-        RPCInterface server;
+        RPCInterface server = null;
         ReturnValueRPC ret = null;
         int serverId;
+        boolean commandResolved = false;
         Command command = new Command();
 
         // Initial heading
@@ -48,6 +49,8 @@ public class Client {
 
         // Read in which server to connect to
         System.out.println("Please enter the id of the server you would like to connect to");
+        System.out.println("(Select from 1 to " + ServerProperties.getMaxServerCount() +
+                " for potentially available server IDs)");
         System.out.println();
         try {
             serverId = Integer.parseInt(reader.readLine());
@@ -59,12 +62,22 @@ public class Client {
             return;
         }
 
-        // Connect to the server
-        server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() +
-                serverId, true);
-        if(server == null) {
+        // Outside valid server ID range
+        if(serverId < 1 || serverId > ServerProperties.getMaxServerCount()) {
+            System.out.println("Invalid server ID selected, please try again");
             SysLog.logger.finest("Exiting method");
             return;
+        }
+
+        // Connect to the server
+        while(server == null) {
+            server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() +
+                    serverId, true);
+            if(server == null) {
+                serverId = nextServerId(serverId);
+                System.out.println("The chosen server was not available, retrying...");
+                System.out.println();
+            }
         }
 
         // Handle client-server interaction
@@ -101,25 +114,48 @@ public class Client {
             break;
         }
 
-        if(ret == null) {
-            System.out.println("An error occurred while processing your transaction, please try again");
-        }
-        else {
-            if(ret.getCondition()) {
-                System.out.println("Your request for " + command.getTicketAmount() +
-                        " tickets has been successfully completed");
-                System.out.println("(Only " + ret.getValue() + " tickets remain, come again soon!)");
+        // Handle results
+        while(!commandResolved) {
+            switch(command.getCommandType()) {
+                case BUY: {
+                    if(ret == null) {
+                        System.out.println("A critical error occurred causing the client to crash while processing your " +
+                                "transaction, please try again");
+                        commandResolved = true;
+                    }
+                    else {
+                        if(ret.getCondition()) {
+                            System.out.println("Your request for " + command.getTicketAmount() +
+                                    " tickets has been successfully completed");
+                            System.out.println("(Only " + ret.getValue() + " tickets remain, come again soon!)");
+                            commandResolved = true;
+                        }
+                        else {
+                            if(ret.getValue() == -1) {
+                                System.out.println("The chosen server was either not the leader or not available, " +
+                                        "retrying...");
+                                System.out.println();
+                            }
+                            else {
+                                System.out.println("Your request for " + command.getTicketAmount() +
+                                        " tickets could not be completed (there were only " + ret.getValue() +
+                                        " tickets left), please try again");
+                                commandResolved = true;
+                            }
+                        }
+                    }
+                    break;
+                }
             }
-            else {
-                if(ret.getValue() == -1) {
-                    System.out.println(
-                            "The server system is currently down or undergoing a leadership transition, please try again");
+
+            if(!commandResolved) {
+                server = null;
+                while(server == null) {
+                    serverId = nextServerId(serverId);
+                    server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
+                            ServerProperties.getBaseServerPort() + serverId, true);
                 }
-                else {
-                    System.out.println("Your request for " + command.getTicketAmount() +
-                            " tickets could not be completed (there were only " + ret.getValue() +
-                            " tickets left), please try again");
-                }
+                ret = server.submitCommandRPC(command);
             }
         }
         System.out.println();
@@ -161,6 +197,15 @@ public class Client {
 
         SysLog.logger.finest("Exiting method");
         return false;
+    }
+
+    // Cycle through server IDs
+    public static int nextServerId(int serverId) {
+        serverId++;
+        if(serverId > ServerProperties.getMaxServerCount()) {
+            serverId = 1;
+        }
+        return serverId;
     }
 
     //endregion

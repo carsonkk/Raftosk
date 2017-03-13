@@ -116,7 +116,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     else {
                         ret.setValue(-1);
                         ret.setCondition(false);
-                        SysLog.logger.info("Client requested transaction from a non-leader server");
+                        SysLog.logger.info("Forwarding Customer BUY request to next server");
                     }
                 }
                 finally {

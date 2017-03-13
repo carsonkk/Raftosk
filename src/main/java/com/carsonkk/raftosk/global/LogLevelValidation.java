@@ -10,7 +10,7 @@ public class LogLevelValidation implements IParameterValidator {
     // Validation handler
     public void validate(String name, String value) throws ParameterException{
         int logLevel = Integer.parseInt(value);
-        if(logLevel < 1 || logLevel > 8) {
+        if(logLevel < 0 || logLevel > 8) {
             throw new ParameterException("Parameter " + name + " was outside the valid range");
         }
     }
