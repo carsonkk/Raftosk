@@ -59,7 +59,8 @@ public class Client {
         }
 
         // Connect to the server
-        server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() + serverId);
+        server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() +
+                serverId);
         if(server == null) {
             SysLog.logger.fine("Exiting method");
             return;
@@ -117,10 +118,12 @@ public class Client {
                 SysLog.logger.info("Received HELP command");
 
                 System.out.println("To select a command to send, type one of the following when prompted:");
-                System.out.println("    - \"buy\": request to purchase tickets from the connected server (for Customers only)");
-                System.out.println("    - \"show\": print out the current state of the state machine as well as the committed logs " +
-                        "in the connected server (for Administrators only)");
-                System.out.println("    - \"change\": change the configuration of the server system (for Administrators only)");
+                System.out.println("    - \"buy\": request to purchase tickets from the connected server (for Customers " +
+                        "only)");
+                System.out.println("    - \"show\": print out the current state of the state machine as well as the " +
+                        "committed logs in the connected server (for Administrators only)");
+                System.out.println("    - \"change\": change the configuration of the server system (for Administrators " +
+                        "only)");
                 System.out.println("    - \"help\": print out this information again");
                 System.out.println("    - \"quit\": disconnect from the server and quit");
                 System.out.println();

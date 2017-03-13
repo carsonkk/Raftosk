@@ -1,12 +1,17 @@
 package main.java.com.carsonkk.raftosk.global;
 
-import java.util.logging.ConsoleHandler;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
+import java.text.SimpleDateFormat;
+import java.text.DateFormat;
+import java.util.logging.*;
 
 // Global project handler for all logging
 public final class SysLog {
+    //region Private Members
+
+    private static final DateFormat dateFormat = new SimpleDateFormat("hh:mm:ss.SSS");
+
+    //endregion
+
     //region Public Members
 
     public static Logger logger;
@@ -20,7 +25,7 @@ public final class SysLog {
         logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
         logger.setUseParentHandlers(false);
         ConsoleHandler handler = new ConsoleHandler();
-        handler.setFormatter(new SimpleFormatter());
+        handler.setFormatter(new SysLogFormatter());
 
         switch (level) {
             case 0: {

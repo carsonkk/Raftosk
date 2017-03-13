@@ -28,7 +28,8 @@ public class Server {
             serverBinding = new HandleRPC(this);
         }
         catch (RemoteException e) {
-            SysLog.logger.severe("An issue occurred while creating the binding to the given RMI address/port: " + e.getMessage());
+            SysLog.logger.severe("An issue occurred while creating the binding to the given RMI address/port: " +
+                    e.getMessage());
             e.printStackTrace();
         }
         SysLog.logger.finer("Created new server with server ID " + this.serverId);

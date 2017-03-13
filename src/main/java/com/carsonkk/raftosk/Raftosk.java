@@ -11,7 +11,7 @@ import main.java.com.carsonkk.raftosk.server.Server;
 
 import java.rmi.RemoteException;
 
-//Point-of-Entry, parse command line options and delegate between acting as a server or client
+// Point-of-Entry, parse command line options and delegate between acting as a server or client
 public class Raftosk {
     //region Private Members
 
@@ -21,7 +21,8 @@ public class Raftosk {
     @Parameter(names = {"-server", "-s"}, description = "Specify this server's id", validateWith = ServerIdValidation.class)
     private int serverId;
 
-    @Parameter(names = {"-logging", "-l"}, description = "Choose verbosity level (OFF(0) - ALL(8)) of logging", validateWith = LogLevelValidation.class)
+    @Parameter(names = {"-logging", "-l"}, description = "Choose verbosity level (OFF(0) - ALL(8)) of logging",
+            validateWith = LogLevelValidation.class)
     private int logLevel;
 
     //endregion
