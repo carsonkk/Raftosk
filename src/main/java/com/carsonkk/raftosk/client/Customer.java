@@ -24,11 +24,12 @@ public class Customer extends Client {
     // Do specific request handling beyond wha the base client's handling performs
     public boolean processCommandRequest(String commandInput, Command command) throws IOException
     {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 
         if(super.processCommandRequest(commandInput, command)) {
+            SysLog.logger.finest("Exiting method");
             return false;
         }
         else {
@@ -45,7 +46,7 @@ public class Customer extends Client {
                     } catch (NumberFormatException e) {
                         System.out.println("Invalid user input: " + e.getMessage());
                         SysLog.logger.warning("Invalid user input: " + e.getMessage());
-                        SysLog.logger.fine("Exiting method");
+                        SysLog.logger.finest("Exiting method");
                         return false;
                     }
 
@@ -59,13 +60,13 @@ public class Customer extends Client {
                     SysLog.logger.info("Received Unknown command");
 
                     invalidCommand = true;
-                    SysLog.logger.fine("Exiting method");
+                    SysLog.logger.finest("Exiting method");
                     return false;
                 }
             }
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return true;
     }
 

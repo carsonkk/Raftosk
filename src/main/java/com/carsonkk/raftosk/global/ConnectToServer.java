@@ -10,27 +10,30 @@ public final class ConnectToServer {
     //region Public Methods
 
     // Performs server connection
-    public static RPCInterface connect(String address, int port)
+    public static RPCInterface connect(String address, int port, boolean logActivity)
     {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         Registry registry;
         RPCInterface server = null;
 
         // Attempt to connect to the specified server
-        SysLog.logger.info("Connecting to remote server(" + address + ":" + port + ")");
+        if(logActivity) {
+            SysLog.logger.info("Connecting to remote server(" + address + ":" + port + ")");
+        }
         try {
             registry = LocateRegistry.getRegistry(address, port);
             server = (RPCInterface)registry.lookup("RPCInterface");
-            SysLog.logger.info("Connected to the server");
+            if(logActivity) {
+                SysLog.logger.info("Connected to the server " + (port - ServerProperties.getBaseServerPort()));
+            }
         }
         catch (RemoteException | NotBoundException e) {
-            SysLog.logger.warning("Could not connect to the remote server: " + e.getMessage());
+            //SysLog.logger.warning("Could not connect to the remote server: " + e.getMessage());
             //e.printStackTrace();
         }
 
-
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return server;
     }
 

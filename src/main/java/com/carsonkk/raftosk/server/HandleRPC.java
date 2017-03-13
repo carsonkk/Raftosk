@@ -87,7 +87,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
     // Handle commands sent to the server by a client
     public ReturnValueRPC submitCommandRPC(Command command) throws RemoteException {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         switch(command.getCommandType()) {
             case BUY: {
@@ -111,14 +111,14 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return null;
     }
 
     // Handle a request for a vote on a new term election for system leader
     public ReturnValueRPC requestVoteRPC(int candidateId, int candidateTerm, int lastLogIndex, int lastLogTerm)
             throws RemoteException {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         ReturnValueRPC ret = new ReturnValueRPC();
 
@@ -130,8 +130,9 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             if(this.server.getStateMachine().getCurrentTerm() > candidateTerm) {
                 ret.setValue(this.server.getStateMachine().getCurrentTerm());
                 ret.setCondition(false);
+
                 SysLog.logger.info("Received vote request from candidate with smaller term (candidate: " + candidateTerm +
-                        ", this: " + this.server.getStateMachine().getCurrentTerm() + "), set step-down values");
+                        ", this: " + this.server.getStateMachine().getCurrentTerm() + "), set step-down values for candidate");
             }
             else if(this.server.getStateMachine().getCurrentTerm() <= candidateTerm &&
                     (this.server.getStateMachine().getVotedFor() == -1 ||
@@ -146,9 +147,19 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 SysLog.logger.info("Received valid term vote request, voted for server " + candidateId + " for term " +
                         candidateTerm);
             }
+            else if(this.server.getStateMachine().getCurrentTerm() < candidateTerm &&
+                    this.server.getStateMachine().getVotedFor() == this.server.getServerId()) {
+                ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                ret.setCondition(false);
+
+                SysLog.logger.info("Received vote request from candidate with larger term (candidate: " + candidateTerm +
+                        ", this: " + this.server.getStateMachine().getCurrentTerm() + "), set old term values and step down");
+
+                this.server.getStateMachine().setCurrentTerm(candidateTerm);
+                this.server.getStateMachine().setVotedFor(-1);
+            }
             else {
-                System.out.println("a");
-                //this.server.getStateMachine().setVotedFor(-1);
+                System.out.println("hi");
             }
 
             if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
@@ -163,25 +174,14 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             this.server.getStateMachine().getCurrentStateLock().unlock();
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return ret;
     }
 
     // Handle appending entries to the log/recognizing heartbeats
     public ReturnValueRPC appendEntriesRPC(int leaderId, int leaderTerm, int prevLogIndex, int prevLogTerm,
                                            List<LogEntry> entries, int lastCommitIndex) throws RemoteException {
-        boolean heartbeat = false;
-
-        if(entries == null) {
-            heartbeat = true;
-        }
-
-        if(heartbeat) {
-            SysLog.logger.finest("Entering method");
-        }
-        else {
-            SysLog.logger.fine("Entering method");
-        }
+        SysLog.logger.finest("Entering method");
 
         ReturnValueRPC ret = new ReturnValueRPC();
 
@@ -200,18 +200,18 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 this.server.getStateMachine().setCurrentTerm(leaderTerm);
             }
 
-            if(heartbeat) {
+            if(entries == null) {
                 this.server.getStateMachine().setVotedFor(-1);
-                SysLog.logger.finest("Heartbeat signal received from leader (server " + leaderId + ")");
+                SysLog.logger.fine("Heartbeat signal received from leader (server " + leaderId + ")");
             }
 
             if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
                 this.server.getStateMachine().getTimeoutCondition().signal();
-                if(heartbeat) {
-                    SysLog.logger.finest("Signalling timeout condition in state machine");
+                if(entries == null) {
+                    SysLog.logger.fine("Signalling timeout condition in state machine");
                 }
                 else {
-                    SysLog.logger.fine("Signalling timeout condition in state machine");
+                    SysLog.logger.info("Signalling timeout condition in state machine");
                 }
             }
         }
@@ -222,31 +222,26 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             this.server.getStateMachine().getCurrentStateLock().unlock();
         }
 
-        if(heartbeat) {
-            SysLog.logger.finest("Exiting method");
-        }
-        else {
-            SysLog.logger.fine("Exiting method");
-        }
+        SysLog.logger.finest("Exiting method");
         return ret;
     }
 
     // Initialize the RMI with the server info
     public boolean setupConnection() throws RemoteException {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         Registry reg = LocateRegistry.createRegistry(ServerProperties.getBaseServerPort() + this.server.getServerId());
         reg.rebind("RPCInterface", this);
         SysLog.logger.info("Server setup complete, ready for connections");
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return true;
     }
 
     // Point-of-entry for a HandleRPC thread
     @Override
     public ReturnValueRPC call() throws RemoteException {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         ReturnValueRPC ret = null;
 
@@ -263,7 +258,12 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 break;
             }
             case APPENDENTRIES: {
-                SysLog.logger.info("Sending APPENDENTRIES RPC to remote server");
+                if(this.entries == null) {
+                    SysLog.logger.fine("Sending APPENDENTRIES RPC to remote server");
+                }
+                else {
+                    SysLog.logger.info("Sending APPENDENTRIES RPC to remote server");
+                }
                 ret = this.remoteServer.appendEntriesRPC(this.leaderId, this.leaderTerm, this.prevLogIndex, this.prevLogTerm,
                         this.entries, this.lastCommitIndex);
                 break;
@@ -274,7 +274,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return ret;
     }
 

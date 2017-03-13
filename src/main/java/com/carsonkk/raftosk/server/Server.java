@@ -47,7 +47,7 @@ public class Server {
     //region Public Methods
 
     public void initializeServer() {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         // Register server with RMI, use base port + id as port value
         try {
@@ -56,8 +56,8 @@ public class Server {
         }
         catch (RemoteException e) {
             SysLog.logger.severe("An issue occurred while binding to the given RMI address/port: " + e.getMessage());
-            //e.printStackTrace();
-            SysLog.logger.fine("Exiting method");
+            e.printStackTrace();
+            SysLog.logger.finest("Exiting method");
             return;
         }
 
@@ -67,19 +67,22 @@ public class Server {
             SysLog.logger.info("Set state machine role to FOLLOWER");
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
     }
 
     // Wait for the state machine to finish execution and exit
     public void waitForExitState() {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         while (true) {
             try {
                 this.stateMachine.runMachine();
             }
             catch (RemoteException e) {
+                SysLog.logger.severe("An issue occurred while running the state machine: " + e.getMessage());
                 e.printStackTrace();
+                SysLog.logger.finest("Exiting method");
+                return;
             }
         }
 

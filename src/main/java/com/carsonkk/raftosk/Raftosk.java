@@ -42,7 +42,7 @@ public class Raftosk {
 
     public static void main(String[] args) throws RemoteException {
         Raftosk raftosk = new Raftosk();
-        String usage = "    javac raftosk [-s serverId] [-a] [-l logLevel]";
+        String usage = "    raftosk [-s serverId] [-a] [-l logLevel]";
         ServerProperties.readPropertiesFile("config.properties");
 
         // Read in command line options

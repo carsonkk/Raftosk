@@ -2,7 +2,6 @@ package main.java.com.carsonkk.raftosk.global;
 
 import java.io.Serializable;
 import java.rmi.RemoteException;
-import java.rmi.server.UnicastRemoteObject;
 
 // Object returned by any RPC call, contains integer and boolean values for result handling
 public class ReturnValueRPC implements Serializable {

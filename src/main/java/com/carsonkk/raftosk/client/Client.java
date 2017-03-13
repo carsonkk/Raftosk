@@ -30,7 +30,7 @@ public class Client {
 
     // Top-level handler for client interactions, delegates between Administrator and Customer options
     public void handleClient() throws IOException {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
@@ -54,15 +54,15 @@ public class Client {
         catch(NumberFormatException e) {
             System.out.println("Invalid user input: " + e.getMessage());
             SysLog.logger.warning("Invalid user input: " + e.getMessage());
-            SysLog.logger.fine("Exiting method");
+            SysLog.logger.finest("Exiting method");
             return;
         }
 
         // Connect to the server
         server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() +
-                serverId);
+                serverId, true);
         if(server == null) {
-            SysLog.logger.fine("Exiting method");
+            SysLog.logger.finest("Exiting method");
             return;
         }
 
@@ -81,7 +81,7 @@ public class Client {
                 // Quit the run if "quit" was received
                 if(quitCommand) {
                     System.out.println("Closing connection with the server and quitting...");
-                    SysLog.logger.fine("Exiting method");
+                    SysLog.logger.finest("Exiting method");
                     return;
                 }
 
@@ -103,7 +103,7 @@ public class Client {
 
     // Process commands in the cases of quiting and helping
     public boolean processCommandRequest(String commandInput, Command command) throws IOException {
-        SysLog.logger.fine("Entering method");
+        SysLog.logger.finest("Entering method");
 
         switch (commandInput) {
             case "QUIT": {
@@ -111,7 +111,7 @@ public class Client {
 
                 quitCommand = true;
 
-                SysLog.logger.fine("Exiting method");
+                SysLog.logger.finest("Exiting method");
                 return true;
             }
             case "HELP": {
@@ -128,12 +128,12 @@ public class Client {
                 System.out.println("    - \"quit\": disconnect from the server and quit");
                 System.out.println();
 
-                SysLog.logger.fine("Exiting method");
+                SysLog.logger.finest("Exiting method");
                 return true;
             }
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
         return false;
     }
 
