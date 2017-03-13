@@ -1,7 +1,9 @@
 package main.java.com.carsonkk.raftosk.global;
 
+import java.io.Serializable;
+
 // Metadata for a command that can be issued from a client to a server
-public class Command {
+public class Command implements Serializable {
     //region Private Members
 
     private CommandType commandType;

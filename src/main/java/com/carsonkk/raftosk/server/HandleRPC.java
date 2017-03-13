@@ -89,10 +89,40 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     public ReturnValueRPC submitCommandRPC(Command command) throws RemoteException {
         SysLog.logger.finest("Entering method");
 
+        ReturnValueRPC ret = new ReturnValueRPC();
+
         switch(command.getCommandType()) {
             case BUY: {
                 SysLog.logger.info("Received BUY command");
 
+                this.server.getTicketPoolLock().lock();
+                this.server.getStateMachine().getCurrentStateLock();
+                try {
+                    if(this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
+                        if(command.getTicketAmount() <= this.server.getTicketPool()) {
+                            this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
+                            ret.setValue(this.server.getTicketPool());
+                            ret.setCondition(true);
+                            SysLog.logger.info("Successfully sold " + command.getTicketAmount() + " tickets");
+                        }
+                        else
+                        {
+                            ret.setValue(this.server.getTicketPool());
+                            ret.setCondition(false);
+                            SysLog.logger.info("Invalid request for " + command.getTicketAmount() + " tickets (only " +
+                                    this.server.getTicketPool() + " remain)");
+                        }
+                    }
+                    else {
+                        ret.setValue(-1);
+                        ret.setCondition(false);
+                        SysLog.logger.info("Client requested transaction from a non-leader server");
+                    }
+                }
+                finally {
+                    this.server.getStateMachine().getCurrentStateLock();
+                    this.server.getTicketPoolLock().unlock();
+                }
                 break;
             }
             case SHOW: {
@@ -112,7 +142,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         }
 
         SysLog.logger.finest("Exiting method");
-        return null;
+        return ret;
     }
 
     // Handle a request for a vote on a new term election for system leader

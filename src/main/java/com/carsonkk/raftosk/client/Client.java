@@ -35,6 +35,7 @@ public class Client {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
         RPCInterface server;
+        ReturnValueRPC ret = null;
         int serverId;
         Command command = new Command();
 
@@ -84,21 +85,46 @@ public class Client {
                     SysLog.logger.finest("Exiting method");
                     return;
                 }
-
                 // Restart loop if a valid command was not given
-                if(invalidCommand) {
+                else if(invalidCommand) {
                     System.out.println("An invalid command was entered, please try again");
                     invalidCommand = false;
+                    continue;
+                }
+                else {
                     continue;
                 }
             }
 
             // Submit command
-            server.submitCommandRPC(command);
+            ret = server.submitCommandRPC(command);
             break;
         }
 
-        SysLog.logger.fine("Exiting method");
+        if(ret == null) {
+            System.out.println("An error occurred while processing your transaction, please try again");
+        }
+        else {
+            if(ret.getCondition()) {
+                System.out.println("Your request for " + command.getTicketAmount() +
+                        " tickets has been successfully completed");
+                System.out.println("(Only " + ret.getValue() + " tickets remain, come again soon!)");
+            }
+            else {
+                if(ret.getValue() == -1) {
+                    System.out.println(
+                            "The server system is currently down or undergoing a leadership transition, please try again");
+                }
+                else {
+                    System.out.println("Your request for " + command.getTicketAmount() +
+                            " tickets could not be completed (there were only " + ret.getValue() +
+                            " tickets left), please try again");
+                }
+            }
+        }
+        System.out.println();
+
+        SysLog.logger.finest("Exiting method");
     }
 
     // Process commands in the cases of quiting and helping

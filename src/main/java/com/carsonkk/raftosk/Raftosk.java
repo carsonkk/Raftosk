@@ -99,7 +99,7 @@ public class Raftosk {
             return;
         }
 
-        SysLog.logger.fine("Exiting method");
+        SysLog.logger.finest("Exiting method");
     }
 
     //endregion
