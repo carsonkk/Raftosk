@@ -122,32 +122,42 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
         ReturnValueRPC ret = new ReturnValueRPC();
 
-        if(this.server.getStateMachine().getCurrentTerm() == candidateTerm &&
-                (this.server.getStateMachine().getVotedFor() == -1 ||
-                        this.server.getStateMachine().getVotedFor() == candidateId) &&
-                this.server.getStateMachine().getLastLogIndex() <= lastLogIndex &&
-                this.server.getStateMachine().getLastLogTerm() <= lastLogTerm) {
+        this.server.getStateMachine().getCurrentStateLock().lock();
+        this.server.getStateMachine().getCurrentTermLock().lock();
+        this.server.getStateMachine().getVotedForLock().lock();
+        this.server.getStateMachine().getTimeoutlock().lock();
+        try {
+            if(this.server.getStateMachine().getCurrentTerm() > candidateTerm) {
+                ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                ret.setCondition(false);
+                SysLog.logger.info("Received vote request from candidate with smaller term, set step-down values");
+            }
+            else if(this.server.getStateMachine().getCurrentTerm() <= candidateTerm &&
+                    (this.server.getStateMachine().getVotedFor() == -1 ||
+                            this.server.getStateMachine().getVotedFor() == candidateId) &&
+                    this.server.getStateMachine().getLastLogIndex() <= lastLogIndex &&
+                    this.server.getStateMachine().getLastLogTerm() <= lastLogTerm) {
+                ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                ret.setCondition(true);
 
-            ret.setValue(this.server.getStateMachine().getCurrentTerm());
-            ret.setCondition(true);
-            this.server.getStateMachine().setVotedFor(candidateId);
-            SysLog.logger.info("Received matching term vote request, voted for server " + candidateId + " for term " +
-                    candidateTerm);
+                this.server.getStateMachine().setVotedFor(candidateId);
+
+                SysLog.logger.info("Received valid term vote request, voted for server " + candidateId + " for term " +
+                        candidateTerm);
+            }
+
+            if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
+                SysLog.logger.info("Signalling timeout condition in state machine");
+                this.server.getStateMachine().getTimeoutCondition().signal();
+            }
         }
-        else if(this.server.getStateMachine().getCurrentTerm() < candidateTerm) {
-            ret.setValue(this.server.getStateMachine().getCurrentTerm());
-            ret.setCondition(false);
-            this.server.getStateMachine().setCurrentTerm(candidateTerm);
-            SysLog.logger.info("Received vote request with larger term, updated local term and abstained from vote");
-        }
-        else if(this.server.getStateMachine().getCurrentTerm() > candidateTerm) {
-            ret.setValue(this.server.getStateMachine().getCurrentTerm());
-            ret.setCondition(false);
-            SysLog.logger.info("Received vote request from candidate with smaller term, set step-down values");
+        finally {
+            this.server.getStateMachine().getTimeoutlock().unlock();
+            this.server.getStateMachine().getVotedForLock().unlock();
+            this.server.getStateMachine().getCurrentTermLock().unlock();
+            this.server.getStateMachine().getCurrentStateLock().unlock();
         }
 
-        this.server.getStateMachine().getTimeoutCondition().signal();
-        SysLog.logger.info("Signalled timeout condition in state machine");
         SysLog.logger.fine("Exiting method");
         return ret;
     }
@@ -155,21 +165,62 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     // Handle appending entries to the log/recognizing heartbeats
     public ReturnValueRPC appendEntriesRPC(int leaderId, int leaderTerm, int prevLogIndex, int prevLogTerm,
                                            List<LogEntry> entries, int lastCommitIndex) throws RemoteException {
-        SysLog.logger.fine("Entering method");
+        boolean heartbeat = false;
+
+        if(entries == null) {
+            heartbeat = true;
+        }
+
+        if(heartbeat) {
+            SysLog.logger.finest("Entering method");
+        }
+        else {
+            SysLog.logger.fine("Entering method");
+        }
 
         ReturnValueRPC ret = new ReturnValueRPC();
 
-        if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
-            ret.setCondition(false);
+        this.server.getStateMachine().getCurrentStateLock().lock();
+        this.server.getStateMachine().getCurrentTermLock().lock();
+        this.server.getStateMachine().getVotedForLock().lock();
+        this.server.getStateMachine().getTimeoutlock().lock();
+        try {
+            if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
+                ret.setCondition(false);
+            }
+            else {
+                ret.setCondition(true);
+            }
+
+            if(heartbeat) {
+                SysLog.logger.finest("Heartbeat signal received from leader (server " + leaderId + ")");
+            }
+
+            ret.setValue(this.server.getStateMachine().getCurrentTerm());
+
+            if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
+                this.server.getStateMachine().getTimeoutCondition().signal();
+                if(heartbeat) {
+                    SysLog.logger.finest("Signalling timeout condition in state machine");
+                }
+                else {
+                    SysLog.logger.fine("Signalling timeout condition in state machine");
+                }
+            }
         }
-        else {
-            ret.setCondition(true);
+        finally {
+            this.server.getStateMachine().getTimeoutlock().unlock();
+            this.server.getStateMachine().getVotedForLock().unlock();
+            this.server.getStateMachine().getCurrentTermLock().unlock();
+            this.server.getStateMachine().getCurrentStateLock().unlock();
         }
 
-        ret.setValue(this.server.getStateMachine().getCurrentTerm());
-        this.server.getStateMachine().getTimeoutCondition().signal();
-        SysLog.logger.info("Signalled timeout condition in state machine");
-        SysLog.logger.fine("Exiting method");
+        if(heartbeat) {
+            SysLog.logger.finest("Exiting method");
+        }
+        else {
+            SysLog.logger.fine("Exiting method");
+        }
         return ret;
     }
 
@@ -177,18 +228,9 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     public boolean setupConnection() throws RemoteException {
         SysLog.logger.fine("Entering method");
 
-        try
-        {
-            Registry reg = LocateRegistry.createRegistry(ServerProperties.getBaseServerPort() +
-                    this.server.getServerId());
-            reg.rebind("RPCInterface", this);
-            SysLog.logger.info("Server setup complete, ready for connections");
-        } catch (Exception e) {
-            SysLog.logger.severe("An issue occurred while the server was initializing its RMI: " + e.getMessage());
-            e.printStackTrace();
-            SysLog.logger.fine("Exiting method");
-            return false;
-        }
+        Registry reg = LocateRegistry.createRegistry(ServerProperties.getBaseServerPort() + this.server.getServerId());
+        reg.rebind("RPCInterface", this);
+        SysLog.logger.info("Server setup complete, ready for connections");
 
         SysLog.logger.fine("Exiting method");
         return true;

@@ -1,17 +1,9 @@
 package main.java.com.carsonkk.raftosk.global;
 
-import java.text.SimpleDateFormat;
-import java.text.DateFormat;
 import java.util.logging.*;
 
 // Global project handler for all logging
 public final class SysLog {
-    //region Private Members
-
-    private static final DateFormat dateFormat = new SimpleDateFormat("hh:mm:ss.SSS");
-
-    //endregion
-
     //region Public Members
 
     public static Logger logger;
@@ -21,11 +13,41 @@ public final class SysLog {
     //region Public Methods
 
     // Initialize the logger, handlers, and formatter
-    public static void setup(int level) {
+    public static void setup(int level, RaftoskType raftoskType) {
+        String baseFileHandler = "%h/Code/-Repos/Raftosk/out/logs/";
         logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
         logger.setUseParentHandlers(false);
-        ConsoleHandler handler = new ConsoleHandler();
-        handler.setFormatter(new SysLogFormatter());
+        ConsoleHandler consoleHandler = new ConsoleHandler();
+        FileHandler fileHandler;
+
+        try {
+            switch (raftoskType) {
+                case SERVER: {
+                    fileHandler = new FileHandler(baseFileHandler + "server-%u.log");
+                    break;
+                }
+                case ADMINISTRATOR: {
+                    fileHandler = new FileHandler(baseFileHandler + "administrator-%u.log");
+                    break;
+                }
+                case CUSTOMER: {
+                    fileHandler = new FileHandler(baseFileHandler + "customer-%u.log");
+                    break;
+                }
+                default: {
+                    System.out.println("Received an invalid raftosk type while setting up SysLog: " + raftoskType);
+                    return;
+                }
+            }
+
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            return;
+        }
+
+        consoleHandler.setFormatter(new SysLogFormatter());
+        fileHandler.setFormatter(new SysLogFormatter());
 
         switch (level) {
             case 0: {
@@ -66,8 +88,10 @@ public final class SysLog {
             }
         }
 
-        handler.setLevel(logger.getLevel());
-        logger.addHandler(handler);
+        consoleHandler.setLevel(logger.getLevel());
+        fileHandler.setLevel(logger.getLevel());
+        logger.addHandler(consoleHandler);
+        logger.addHandler(fileHandler);
     }
 
     //endregion

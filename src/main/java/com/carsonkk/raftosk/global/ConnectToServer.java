@@ -1,5 +1,7 @@
 package main.java.com.carsonkk.raftosk.global;
 
+import java.rmi.NotBoundException;
+import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 
@@ -13,21 +15,20 @@ public final class ConnectToServer {
         SysLog.logger.fine("Entering method");
 
         Registry registry;
-        RPCInterface server;
+        RPCInterface server = null;
 
         // Attempt to connect to the specified server
         SysLog.logger.info("Connecting to remote server(" + address + ":" + port + ")");
         try {
             registry = LocateRegistry.getRegistry(address, port);
             server = (RPCInterface)registry.lookup("RPCInterface");
+            SysLog.logger.info("Connected to the server");
         }
-        catch (Exception e) {
+        catch (RemoteException | NotBoundException e) {
             SysLog.logger.warning("Could not connect to the remote server: " + e.getMessage());
-            e.printStackTrace();
-            SysLog.logger.fine("Exiting method");
-            return null;
+            //e.printStackTrace();
         }
-        SysLog.logger.info("Connected to the server");
+
 
         SysLog.logger.fine("Exiting method");
         return server;

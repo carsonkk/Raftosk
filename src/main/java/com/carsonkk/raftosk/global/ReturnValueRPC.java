@@ -1,7 +1,11 @@
 package main.java.com.carsonkk.raftosk.global;
 
+import java.io.Serializable;
+import java.rmi.RemoteException;
+import java.rmi.server.UnicastRemoteObject;
+
 // Object returned by any RPC call, contains integer and boolean values for result handling
-public class ReturnValueRPC {
+public class ReturnValueRPC implements Serializable {
     //region Private Members
 
     private int value;
@@ -11,14 +15,14 @@ public class ReturnValueRPC {
 
     //region Constructors
 
-    public ReturnValueRPC() {
+    public ReturnValueRPC() throws RemoteException {
         this.value = 0;
         this.condition = false;
 
         SysLog.logger.finer("Created a new return value RPC");
     }
 
-    public ReturnValueRPC(int value, boolean condition) {
+    public ReturnValueRPC(int value, boolean condition) throws RemoteException {
         this.value = value;
         this.condition = condition;
 

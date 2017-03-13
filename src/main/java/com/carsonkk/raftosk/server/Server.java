@@ -13,7 +13,6 @@ public class Server {
 
     private int serverId;
     private StateMachine stateMachine;
-    private Future<Void> stateMachineFuture;
     private HandleRPC serverBinding;
 
     //endregion
@@ -23,14 +22,13 @@ public class Server {
     public Server(int serverId) {
         this.serverId = serverId;
         this.stateMachine = new StateMachine(this);
-        this.stateMachineFuture = null;
         try {
             serverBinding = new HandleRPC(this);
         }
         catch (RemoteException e) {
             SysLog.logger.severe("An issue occurred while creating the binding to the given RMI address/port: " +
                     e.getMessage());
-            e.printStackTrace();
+            //e.printStackTrace();
         }
         SysLog.logger.finer("Created new server with server ID " + this.serverId);
     }
@@ -56,16 +54,12 @@ public class Server {
 
         // Register server with RMI, use base port + id as port value
         try {
-            if(!this.serverBinding.setupConnection()) {
-                SysLog.logger.warning("Was unable to bind to the specified RMI address/port");
-                SysLog.logger.fine("Exiting method");
-                return;
-            }
+            this.serverBinding.setupConnection();
             SysLog.logger.info("Successfully bound to the specified RMI address/port");
         }
         catch (RemoteException e) {
             SysLog.logger.severe("An issue occurred while binding to the given RMI address/port: " + e.getMessage());
-            e.printStackTrace();
+            //e.printStackTrace();
             SysLog.logger.fine("Exiting method");
             return;
         }
@@ -76,10 +70,20 @@ public class Server {
             SysLog.logger.info("Set state machine role to FOLLOWER");
         }
 
-        // Start up state machine
-        ExecutorService executorService = Executors.newSingleThreadExecutor();
-        this.stateMachineFuture = executorService.submit(this.stateMachine);
-        SysLog.logger.info("Began executor service for state machine thread");
+        SysLog.logger.fine("Exiting method");
+    }
+
+    // Wait for the state machine to finish execution and exit
+    public void waitForExitState() {
+        SysLog.logger.fine("Entering method");
+
+        try {
+            this.stateMachine.runMachine();
+            SysLog.logger.info("State machine has exited");
+        }
+        catch (RemoteException e) {
+            e.printStackTrace();
+        }
 
         SysLog.logger.fine("Exiting method");
     }

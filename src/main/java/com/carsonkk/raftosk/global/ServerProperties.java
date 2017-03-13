@@ -74,7 +74,7 @@ public final class ServerProperties {
         }
         catch (IOException e) {
             System.out.println("An error occurred while opening/reading in the properties file values: " + e.getMessage());
-            e.printStackTrace();
+            //e.printStackTrace();
         }
         finally {
             if (inputStream != null) {
@@ -83,7 +83,7 @@ public final class ServerProperties {
                 }
                 catch (IOException e) {
                     System.out.println("An error occurred while closing the properties file stream: " + e.getMessage());
-                    e.printStackTrace();
+                    //e.printStackTrace();
                 }
             }
         }

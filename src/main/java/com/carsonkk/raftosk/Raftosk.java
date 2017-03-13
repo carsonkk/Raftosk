@@ -3,12 +3,10 @@ package main.java.com.carsonkk.raftosk;
 import com.beust.jcommander.*;
 import main.java.com.carsonkk.raftosk.client.Administrator;
 import main.java.com.carsonkk.raftosk.client.Customer;
-import main.java.com.carsonkk.raftosk.global.LogLevelValidation;
-import main.java.com.carsonkk.raftosk.global.ServerIdValidation;
-import main.java.com.carsonkk.raftosk.global.ServerProperties;
-import main.java.com.carsonkk.raftosk.global.SysLog;
+import main.java.com.carsonkk.raftosk.global.*;
 import main.java.com.carsonkk.raftosk.server.Server;
 
+import java.io.IOException;
 import java.rmi.RemoteException;
 
 // Point-of-Entry, parse command line options and delegate between acting as a server or client
@@ -25,6 +23,8 @@ public class Raftosk {
             validateWith = LogLevelValidation.class)
     private int logLevel;
 
+    private RaftoskType raftoskType;
+
     //endregion
 
     //region Constructors
@@ -33,6 +33,7 @@ public class Raftosk {
         clientTypeParam = false;
         serverId = -1;
         logLevel = 3;
+        raftoskType = RaftoskType.NULL;
     }
 
     //endregion
@@ -54,27 +55,29 @@ public class Raftosk {
             return;
         }
 
-        // Init logger
-        SysLog.setup(raftosk.logLevel);
-
         // Parse command line options, determine mode
         try {
             // Both options were specified, invalid
             if(raftosk.serverId != -1 && raftosk.clientTypeParam) {
-                SysLog.logger.severe("Invalid or missing arguments. Usage:");
-                SysLog.logger.severe(usage);
+                System.out.println("Invalid or missing arguments. Usage:");
+                System.out.println(usage);
             }
             // Operate in server mode
             else if(raftosk.serverId != -1) {
+                raftosk.raftoskType = RaftoskType.SERVER;
+                SysLog.setup(raftosk.logLevel, raftosk.raftoskType);
                 SysLog.logger.config("Operating in server mode, creating server object");
                 Server server = new Server(raftosk.serverId);
                 SysLog.logger.info("Initializing server " + raftosk.serverId);
                 server.initializeServer();
+                server.waitForExitState();
             }
             // Operate in client mode
             else {
                 // Operate as an Administrator
                 if(raftosk.clientTypeParam) {
+                    raftosk.raftoskType = RaftoskType.ADMINISTRATOR;
+                    SysLog.setup(raftosk.logLevel, raftosk.raftoskType);
                     SysLog.logger.config("Operating in client mode as an Administrator, creating Administrator object");
                     Administrator administrator = new Administrator();
                     SysLog.logger.info("Running client handler");
@@ -82,15 +85,18 @@ public class Raftosk {
                 }
                 // Operate as a Customer
                 else {
+                    raftosk.raftoskType = RaftoskType.CUSTOMER;
+                    SysLog.setup(raftosk.logLevel, raftosk.raftoskType);
                     SysLog.logger.config("Operating in client mode as a Customer, creating Customer object");
                     Customer customer = new Customer();
                     SysLog.logger.info("Running client handler");
                     customer.handleClient();
                 }
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             SysLog.logger.severe("An issue occurred while creating the server/client object: " + e.getMessage());
-            e.printStackTrace();
+            //e.printStackTrace();
+            return;
         }
 
         SysLog.logger.fine("Exiting method");
