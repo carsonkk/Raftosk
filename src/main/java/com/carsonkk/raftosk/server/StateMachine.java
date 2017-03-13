@@ -138,7 +138,7 @@ public class StateMachine {
 
     //region Public Methods
 
-    public Void runMachine() throws RemoteException {
+    public void runMachine() throws RemoteException {
         SysLog.logger.fine("Entering method");
 
         ExecutorService executorService;
@@ -147,25 +147,24 @@ public class StateMachine {
         Callable<ReturnValueRPC> callable;
         RPCInterface remoteServer;
         ReturnValueRPC ret;
-        double electionTimeout;
+        long electionTimeout;
         long startTime;
         long endTime;
         int votesReceived;
         int majorityVotes = ((int)floor(ServerProperties.getMaxServerCount() / 2.0)) + 1;
         boolean heartbeatReceived;
 
-        while(true) {
             switch(this.currentState) {
                 case FOLLOWER: {
                     SysLog.logger.fine("Began execution in FOLLOWER state");
 
                     heartbeatReceived = false;
-                    electionTimeout = (double) getRandomElectionTimeout();
+                    electionTimeout = TimeUnit.MILLISECONDS.toNanos(getRandomElectionTimeout());
 
                     while (!heartbeatReceived) {
                         this.timeoutlock.lock();
                         try {
-                            heartbeatReceived = timeoutCondition.await((int) electionTimeout, TimeUnit.MILLISECONDS);
+                            heartbeatReceived = timeoutCondition.await(electionTimeout, TimeUnit.NANOSECONDS);
 
                             this.currentStateLock.lock();
                             this.votedForLock.lock();
@@ -234,12 +233,11 @@ public class StateMachine {
                         }
 
                         // Set a maximum election timeout and attempt to get at least a majority of votes
-                        electionTimeout = (double) ServerProperties.getMaxElectionTimeout();
-                        while (electionTimeout > 0.0 && votesReceived < majorityVotes) {
+                        electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getMaxElectionTimeout());
+                        while (electionTimeout > 0 && votesReceived < majorityVotes) {
+                            // Start keeping track of time
+                            startTime = System.nanoTime();
                             try {
-                                // Start keeping track of time
-                                startTime = System.nanoTime();
-
                                 // Loop over return values looking for completed tasks
                                 futureTaskIterator = futureTaskList.iterator();
                                 while(futureTaskIterator.hasNext()) {
@@ -259,21 +257,23 @@ public class StateMachine {
 
                                 // Handle stepping down if an existing candidate or leader was found
                                 if (ret != null && ret.getValue() > this.currentTerm) {
-                                    SysLog.logger.info("Discovered a higher term while requesting votes,  stepping down");
+                                    SysLog.logger.info("Discovered a higher term while requesting votes, stepping down");
                                     this.currentTerm = ret.getValue();
+                                    this.votedFor = -1;
                                     SysLog.logger.info("Switching state from CANDIDATE to FOLLOWER");
                                     this.currentState = StateType.FOLLOWER;
                                     break;
                                 }
-
-                                // Finish keeping track of time, update electionTimeout
-                                endTime = System.nanoTime();
-                                electionTimeout -= ((endTime - startTime) / 1000000.0);
-                            } catch (InterruptedException | ExecutionException e) {
+                            }
+                            catch (InterruptedException | ExecutionException e) {
                                 //SysLog.logger.warning("State machine was interrupted during execution: " +
                                 e.getMessage();
                                 e.printStackTrace();
                             }
+
+                            // Finish keeping track of time, update electionTimeout
+                            endTime = System.nanoTime();
+                            electionTimeout -= (endTime - startTime);
                         }
 
                         // Only check if still a candidate
@@ -330,12 +330,11 @@ public class StateMachine {
                         }
 
                         // Set a maximum election timeout and attempt to get at least a majority of votes
-                        electionTimeout = (double) ServerProperties.getHeartbeatFrequency();
-                        while (electionTimeout > 0.0 && futureTaskList.size() > 0) {
+                        electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getHeartbeatFrequency());
+                        while (electionTimeout > 0 && futureTaskList.size() > 0) {
+                            // Start keeping track of time
+                            startTime = System.nanoTime();
                             try {
-                                // Start keeping track of time
-                                startTime = System.nanoTime();
-
                                 futureTaskIterator = futureTaskList.iterator();
                                 while(futureTaskIterator.hasNext()) {
                                     FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
@@ -374,19 +373,20 @@ public class StateMachine {
                                 if (ret != null && ret.getValue() > this.currentTerm) {
                                     SysLog.logger.info("Discovered a server with a higher term, stepping down");
                                     this.currentTerm = ret.getValue();
+                                    this.votedFor = -1;
                                     SysLog.logger.info("Switching state from LEADER to FOLLOWER");
                                     this.currentState = StateType.FOLLOWER;
                                     break;
                                 }
-
-                                // Finish keeping track of time, update electionTimeout
-                                endTime = System.nanoTime();
-                                electionTimeout -= ((endTime - startTime) / 1000000.0);
                             }
                             catch (InterruptedException | ExecutionException e) {
                                 //SysLog.logger.warning("State machine was interrupted during execution: " +
                                 e.printStackTrace();
                             }
+
+                            // Finish keeping track of time, update electionTimeout
+                            endTime = System.nanoTime();
+                            electionTimeout -= (endTime - startTime);
                         }
 
                         executorService.shutdown();
@@ -405,8 +405,9 @@ public class StateMachine {
                     break;
                 }
             }
+
+        SysLog.logger.fine("Exiting method");
         }
-    }
 
     public static int getRandomElectionTimeout() {
         return ThreadLocalRandom.current().nextInt(ServerProperties.getMinElectionTimeout(),

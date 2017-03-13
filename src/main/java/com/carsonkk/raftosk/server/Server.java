@@ -3,9 +3,6 @@ package main.java.com.carsonkk.raftosk.server;
 import main.java.com.carsonkk.raftosk.global.SysLog;
 
 import java.rmi.RemoteException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 // Top-level server functionality
 public class Server {
@@ -77,15 +74,16 @@ public class Server {
     public void waitForExitState() {
         SysLog.logger.fine("Entering method");
 
-        try {
-            this.stateMachine.runMachine();
-            SysLog.logger.info("State machine has exited");
-        }
-        catch (RemoteException e) {
-            e.printStackTrace();
+        while (true) {
+            try {
+                this.stateMachine.runMachine();
+            }
+            catch (RemoteException e) {
+                e.printStackTrace();
+            }
         }
 
-        SysLog.logger.fine("Exiting method");
+        //SysLog.logger.fine("Exiting method");
     }
 
     //endregion

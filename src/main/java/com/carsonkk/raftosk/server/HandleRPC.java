@@ -130,7 +130,8 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             if(this.server.getStateMachine().getCurrentTerm() > candidateTerm) {
                 ret.setValue(this.server.getStateMachine().getCurrentTerm());
                 ret.setCondition(false);
-                SysLog.logger.info("Received vote request from candidate with smaller term, set step-down values");
+                SysLog.logger.info("Received vote request from candidate with smaller term (candidate: " + candidateTerm +
+                        ", this: " + this.server.getStateMachine().getCurrentTerm() + "), set step-down values");
             }
             else if(this.server.getStateMachine().getCurrentTerm() <= candidateTerm &&
                     (this.server.getStateMachine().getVotedFor() == -1 ||
@@ -144,6 +145,10 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
                 SysLog.logger.info("Received valid term vote request, voted for server " + candidateId + " for term " +
                         candidateTerm);
+            }
+            else {
+                System.out.println("a");
+                //this.server.getStateMachine().setVotedFor(-1);
             }
 
             if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
@@ -187,16 +192,18 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         try {
             if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
                 ret.setCondition(false);
+                ret.setValue(this.server.getStateMachine().getCurrentTerm());
             }
             else {
                 ret.setCondition(true);
+                ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                this.server.getStateMachine().setCurrentTerm(leaderTerm);
             }
 
             if(heartbeat) {
+                this.server.getStateMachine().setVotedFor(-1);
                 SysLog.logger.finest("Heartbeat signal received from leader (server " + leaderId + ")");
             }
-
-            ret.setValue(this.server.getStateMachine().getCurrentTerm());
 
             if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
                 this.server.getStateMachine().getTimeoutCondition().signal();
@@ -245,18 +252,18 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
         switch(this.rpc) {
             case SUBMITCOMMAND: {
-                SysLog.logger.info("Received SUBMITCOMMAND rpc");
+                SysLog.logger.info("Sending SUBMITCOMMAND RPC to remote server");
                 ret = submitCommandRPC(this.command);
                 break;
             }
             case REQUESTVOTE: {
-                SysLog.logger.info("Received REQUESTVOTE rpc");
+                SysLog.logger.info("Sending REQUESTVOTE RPC to remote server");
                 ret = this.remoteServer.requestVoteRPC(this.candidateId, this.candidateTerm, this.lastLogIndex,
                         this.lastLogTerm);
                 break;
             }
             case APPENDENTRIES: {
-                SysLog.logger.info("Received APPENDENTRIES rpc");
+                SysLog.logger.info("Sending APPENDENTRIES RPC to remote server");
                 ret = this.remoteServer.appendEntriesRPC(this.leaderId, this.leaderTerm, this.prevLogIndex, this.prevLogTerm,
                         this.entries, this.lastCommitIndex);
                 break;
