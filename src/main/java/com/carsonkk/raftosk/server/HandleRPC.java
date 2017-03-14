@@ -89,56 +89,81 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     public ReturnValueRPC submitCommandRPC(Command command) throws RemoteException {
         SysLog.logger.finest("Entering method");
 
+        RPCInterface remoteLeader = null;
         ReturnValueRPC ret = new ReturnValueRPC();
 
-        switch(command.getCommandType()) {
-            case BUY: {
-                SysLog.logger.info("Received BUY command");
+        this.server.getStateMachine().getCurrentStateLock().lock();
+        this.server.getStateMachine().getLeaderIdLock().lock();
+        try {
+            // Check if this is the leader server
+            if(this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
+                switch(command.getCommandType()) {
+                    case BUY: {
+                        SysLog.logger.info("Received BUY command");
 
-                this.server.getTicketPoolLock().lock();
-                this.server.getStateMachine().getCurrentStateLock();
-                try {
-                    if(this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
-                        if(command.getTicketAmount() <= this.server.getTicketPool()) {
-                            this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
-                            ret.setValue(this.server.getTicketPool());
-                            ret.setCondition(true);
-                            SysLog.logger.info("Successfully sold " + command.getTicketAmount() + " tickets");
+                        this.server.getTicketPoolLock().lock();
+                        try {
+                            if(command.getTicketAmount() <= this.server.getTicketPool()) {
+                                this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
+                                ret.setValue(this.server.getTicketPool());
+                                ret.setCondition(true);
+                                SysLog.logger.info("Successfully sold " + command.getTicketAmount() + " tickets");
+                            }
+                            else
+                            {
+                                ret.setValue(this.server.getTicketPool());
+                                ret.setCondition(false);
+                                SysLog.logger.info("Invalid request for " + command.getTicketAmount() +
+                                        " tickets (only " + this.server.getTicketPool() + " remain)");
+                            }
                         }
-                        else
-                        {
-                            ret.setValue(this.server.getTicketPool());
-                            ret.setCondition(false);
-                            SysLog.logger.info("Invalid request for " + command.getTicketAmount() + " tickets (only " +
-                                    this.server.getTicketPool() + " remain)");
+                        finally {
+                            this.server.getTicketPoolLock().unlock();
                         }
+                        break;
+                    }
+                    case SHOW: {
+                        SysLog.logger.info("Received SHOW command");
+
+                        break;
+                    }
+                    case CHANGE: {
+                        SysLog.logger.info("Received CHANGE command");
+
+                        break;
+                    }
+                    default: {
+                        SysLog.logger.severe("An invalid CommandType was received by the server: " +
+                                command.getCommandType());
+                        break;
+                    }
+                }
+            }
+            else {
+                // If leader exists, forward and block, otherwise return a "retry" ReturnValueRPC
+                if(this.server.getStateMachine().getLeaderId() != -1) {
+                    remoteLeader = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
+                            ServerProperties.getBaseServerPort() + this.server.getStateMachine().getLeaderId(), true);
+                    if(remoteLeader != null) {
+                        SysLog.logger.info("Forwarding command from " + this.server.getStateMachine().getCurrentState() +
+                                " Server " + this.server.getServerId() + " to LEADER Server " +
+                                this.server.getStateMachine().getLeaderId());
+                        ret = remoteLeader.submitCommandRPC(command);
                     }
                     else {
                         ret.setValue(-1);
                         ret.setCondition(false);
-                        SysLog.logger.info("Forwarding Customer BUY request to next server");
                     }
                 }
-                finally {
-                    this.server.getStateMachine().getCurrentStateLock();
-                    this.server.getTicketPoolLock().unlock();
+                else {
+                    ret.setValue(-1);
+                    ret.setCondition(false);
                 }
-                break;
             }
-            case SHOW: {
-                SysLog.logger.info("Received SHOW command");
-
-                break;
-            }
-            case CHANGE: {
-                SysLog.logger.info("Received CHANGE command");
-
-                break;
-            }
-            default: {
-                SysLog.logger.severe("An invalid CommandType was received by the server: " + command.getCommandType());
-                break;
-            }
+        }
+        finally {
+            this.server.getStateMachine().getCurrentStateLock().unlock();
+            this.server.getStateMachine().getLeaderIdLock().unlock();
         }
 
         SysLog.logger.finest("Exiting method");
@@ -218,13 +243,16 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         this.server.getStateMachine().getCurrentStateLock().lock();
         this.server.getStateMachine().getCurrentTermLock().lock();
         this.server.getStateMachine().getVotedForLock().lock();
+        this.server.getStateMachine().getLeaderIdLock().lock();
         this.server.getStateMachine().getTimeoutlock().lock();
         try {
             if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
+                this.server.getStateMachine().setLeaderId(-1);
                 ret.setCondition(false);
                 ret.setValue(this.server.getStateMachine().getCurrentTerm());
             }
             else {
+                this.server.getStateMachine().setLeaderId(leaderId);
                 ret.setCondition(true);
                 ret.setValue(this.server.getStateMachine().getCurrentTerm());
                 this.server.getStateMachine().setCurrentTerm(leaderTerm);
@@ -247,6 +275,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         }
         finally {
             this.server.getStateMachine().getTimeoutlock().unlock();
+            this.server.getStateMachine().getLeaderIdLock().unlock();
             this.server.getStateMachine().getVotedForLock().unlock();
             this.server.getStateMachine().getCurrentTermLock().unlock();
             this.server.getStateMachine().getCurrentStateLock().unlock();

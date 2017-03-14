@@ -54,6 +54,7 @@ public class Client {
         System.out.println();
         try {
             serverId = Integer.parseInt(reader.readLine());
+            System.out.println();
         }
         catch(NumberFormatException e) {
             System.out.println("Invalid user input: " + e.getMessage());

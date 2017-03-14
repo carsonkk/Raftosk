@@ -10,7 +10,7 @@ import java.util.logging.LogRecord;
 public class SysLogFormatter extends Formatter{
     //region Private Members
 
-    private static final DateFormat dateFormat = new SimpleDateFormat("ss.SSS");
+    private static final DateFormat dateFormat = new SimpleDateFormat("mm:ss.SSS");
 
     //endregion
 

@@ -103,7 +103,7 @@ public final class SysLog {
         consoleHandler.setLevel(logger.getLevel());
         fileHandler.setLevel(logger.getLevel());
         logger.addHandler(consoleHandler);
-        logger.addHandler(fileHandler);
+        //logger.addHandler(fileHandler);
     }
 
     //endregion
