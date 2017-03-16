@@ -69,7 +69,10 @@ public class Raftosk {
                 SysLog.logger.config("Operating in server mode, creating server object");
                 Server server = new Server(raftosk.serverId);
                 SysLog.logger.info("Initializing server " + raftosk.serverId);
-                server.initializeServer();
+                if(server.initializeServer() == 1) {
+                    SysLog.logger.finest("Exiting method");
+                    System.exit(1);
+                }
                 server.waitForExitState();
             }
             // Operate in client mode
@@ -81,7 +84,10 @@ public class Raftosk {
                     SysLog.logger.config("Operating in client mode as an Administrator, creating Administrator object");
                     Administrator administrator = new Administrator();
                     SysLog.logger.info("Running client handler");
-                    administrator.handleClient();
+                    if(administrator.handleClient() == 1) {
+                        SysLog.logger.finest("Exiting method");
+                        System.exit(1);
+                    }
                 }
                 // Operate as a Customer
                 else {
@@ -90,16 +96,21 @@ public class Raftosk {
                     SysLog.logger.config("Operating in client mode as a Customer, creating Customer object");
                     Customer customer = new Customer();
                     SysLog.logger.info("Running client handler");
-                    customer.handleClient();
+                    if(customer.handleClient() == 1) {
+                        SysLog.logger.finest("Exiting method");
+                        System.exit(1);
+                    }
                 }
             }
         } catch (IOException e) {
             SysLog.logger.severe("An issue occurred while creating the server/client object: " + e.getMessage());
-            //e.printStackTrace();
-            return;
+            e.printStackTrace();
+            SysLog.logger.finest("Exiting method");
+            System.exit(1);
         }
 
         SysLog.logger.finest("Exiting method");
+        System.exit(0);
     }
 
     //endregion

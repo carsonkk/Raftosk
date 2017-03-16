@@ -3,13 +3,14 @@ package main.java.com.carsonkk.raftosk.server;
 import main.java.com.carsonkk.raftosk.global.Command;
 import main.java.com.carsonkk.raftosk.global.SysLog;
 
+import java.util.UUID;
+
 // Keep track of info for each entry into the system's transaction log
 public class LogEntry {
     //region Private Members
 
     private int index;
     private int term;
-    private int serverId;
     private Command command;
 
     //endregion
@@ -19,7 +20,6 @@ public class LogEntry {
     public LogEntry() {
         this.index = -1;
         this.term = -1;
-        this.serverId = -1;
         this.command = new Command();
         SysLog.logger.finer("Created new log entry");
     }
@@ -30,11 +30,24 @@ public class LogEntry {
         SysLog.logger.finer("Created new log entry with index " + this.index);
     }
 
-    public LogEntry(int index, int term, int serverId) {
+    public LogEntry(int index, int term, Command command) {
         this(index);
         this.term = term;
-        this.serverId = serverId;
-        SysLog.logger.finer("Created new log entry with term " + this.term + " and server ID " + this.serverId);
+        this.command = command;
+        SysLog.logger.finer("Created new log entry with term " + this.term + " and command " +
+                this.command.getCommandType());
+    }
+
+    public int getIndex() {
+        return this.index;
+    }
+
+    public int getTerm() {
+        return this.term;
+    }
+
+    public Command getCommand() {
+        return this.command;
     }
 
     //endregion

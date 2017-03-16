@@ -20,11 +20,11 @@ public class SysLogFormatter extends Formatter{
         String sourceClassName = "main.java.com.carsonkk.raftosk.";
 
         StringBuilder stringBuilder = new StringBuilder(2048);
-        stringBuilder.append("[").append(record.getThreadID()).append("] ");
+        stringBuilder.append("<").append(String.format("%02d", record.getThreadID())).append("> ");
         stringBuilder.append("(").append(dateFormat.format(new Date(record.getMillis()))).append(") ");
+        stringBuilder.append("[").append(record.getLevel()).append("] ");
         stringBuilder.append(record.getSourceClassName().substring(sourceClassName.length())).append(".");
         stringBuilder.append(record.getSourceMethodName()).append("(): ");
-        stringBuilder.append("[").append(record.getLevel()).append("] ");
         stringBuilder.append(formatMessage(record));
         stringBuilder.append(System.lineSeparator());
 

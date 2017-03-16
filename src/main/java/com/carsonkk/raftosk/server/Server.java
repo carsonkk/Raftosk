@@ -65,7 +65,7 @@ public class Server {
 
     //region Public Methods
 
-    public void initializeServer() {
+    public int initializeServer() {
         SysLog.logger.finest("Entering method");
 
         // Register server with RMI, use base port + id as port value
@@ -77,7 +77,7 @@ public class Server {
             SysLog.logger.severe("An issue occurred while binding to the given RMI address/port: " + e.getMessage());
             e.printStackTrace();
             SysLog.logger.finest("Exiting method");
-            return;
+            return 1;
         }
 
         // Setup state to be a follower
@@ -87,6 +87,7 @@ public class Server {
         }
 
         SysLog.logger.finest("Exiting method");
+        return 0;
     }
 
     // Wait for the state machine to finish execution and exit

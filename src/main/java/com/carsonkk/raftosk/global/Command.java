@@ -1,6 +1,7 @@
 package main.java.com.carsonkk.raftosk.global;
 
 import java.io.Serializable;
+import java.util.UUID;
 
 // Metadata for a command that can be issued from a client to a server
 public class Command implements Serializable {
@@ -10,16 +11,18 @@ public class Command implements Serializable {
     private ChangeType changeType;
     private int ticketAmount;
     private int serverAmount;
+    private UUID uniqueId;
 
     //endregion
 
     //region Constructors
 
     public Command() {
-        commandType = CommandType.NULL;
-        changeType = ChangeType.NULL;
-        ticketAmount = -1;
-        serverAmount = -1;
+        this.commandType = CommandType.NULL;
+        this.changeType = ChangeType.NULL;
+        this.ticketAmount = -1;
+        this.serverAmount = -1;
+        this.uniqueId = null;
 
         SysLog.logger.finer("Created command");
     }
@@ -58,6 +61,14 @@ public class Command implements Serializable {
 
     public void setServerAmount(int serverAmount) {
         this.serverAmount = serverAmount;
+    }
+
+    public UUID getUniqueId() {
+        return this.uniqueId;
+    }
+
+    public void setUniqueId(UUID uniqueId) {
+        this.uniqueId = uniqueId;
     }
 
     //endregion

@@ -6,6 +6,7 @@ import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -18,6 +19,7 @@ public class StateMachine {
     //region Private Members
 
     // State machine locks
+    private final Lock logLock = new ReentrantLock();
     private final Lock currentStateLock = new ReentrantLock();
     private final Lock currentTermLock = new ReentrantLock();
     private final Lock votedForLock = new ReentrantLock();
@@ -53,15 +55,18 @@ public class StateMachine {
         this.currentTerm = 0;
         this.lastLogIndex = 0;
         this.lastLogTerm = 0;
-        this.prevLogIndex = 0;
-        this.prevLogTerm = 0;
+        this.prevLogIndex = -1;
+        this.prevLogTerm = -1;
         this.commitIndex = 0;
         this.votedFor = -1;
         this.leaderId = -1;
         this.executorService = Executors.newCachedThreadPool();
 
         // Leave with a serverId of -1, creates initial log sync point
-        log.add(new LogEntry(this.lastLogIndex, this.lastLogTerm, -1));
+        Command dummyCommand = new Command();
+        dummyCommand.setUniqueId(new UUID(0, 0));
+        log.add(new LogEntry(this.lastLogIndex, this.lastLogTerm, dummyCommand));
+
         // Setup nextIndexes list, use for appending entries
         for(int i = 0; i < ServerProperties.getMaxServerCount(); i++) {
             nextIndexes.add(this.lastLogIndex + 1);
@@ -73,12 +78,15 @@ public class StateMachine {
     public StateMachine(Server server) {
         this();
         this.server = server;
-        SysLog.logger.finer("Created new state machine with server " + this.server);
     }
 
     //endregion
 
     //region Getters/Setters
+
+    public Lock getLogLock() {
+        return this.logLock;
+    }
 
     public Lock getCurrentStateLock() {
         return this.currentStateLock;
@@ -102,6 +110,14 @@ public class StateMachine {
 
     public Condition getTimeoutCondition() {
         return this.timeoutCondition;
+    }
+
+    public List<LogEntry> getLog() {
+        return this.log;
+    }
+
+    public void setLog(List<LogEntry> log) {
+        this.log = log;
     }
 
     public StateType getCurrentState() {
@@ -132,20 +148,40 @@ public class StateMachine {
         return this.lastLogIndex;
     }
 
+    public void setLastLogIndex(int lastLogIndex) {
+        this.lastLogIndex = lastLogIndex;
+    }
+
     public int getLastLogTerm() {
         return this.lastLogTerm;
+    }
+
+    public void setLastLogTerm(int lastLogTerm) {
+        this.lastLogTerm = lastLogTerm;
     }
 
     public int getPrevLogIndex() {
         return this.prevLogIndex;
     }
 
+    public void setPrevLogIndex(int prevLogIndex) {
+        this.prevLogIndex = prevLogIndex;
+    }
+
     public int getPrevLogTerm() {
         return this.prevLogTerm;
     }
 
+    public void setPrevLogTerm(int prevLogTerm) {
+        this.prevLogTerm = prevLogTerm;
+    }
+
     public int getCommitIndex() {
         return this.commitIndex;
+    }
+
+    public void setCommitIndex(int commitIndex) {
+        this.commitIndex = commitIndex;
     }
 
     public int getLeaderId() {
@@ -183,35 +219,29 @@ public class StateMachine {
                 heartbeatReceived = false;
                 electionTimeout = TimeUnit.MILLISECONDS.toNanos(getRandomElectionTimeout());
 
-                while (!heartbeatReceived) {
-                    this.timeoutLock.lock();
-                    try {
-                        heartbeatReceived = timeoutCondition.await(electionTimeout, TimeUnit.NANOSECONDS);
+                this.timeoutLock.lock();
+                try {
+                    heartbeatReceived = timeoutCondition.await(electionTimeout, TimeUnit.NANOSECONDS);
 
-                        this.currentStateLock.lock();
-                        this.votedForLock.lock();
-                        try {
-                            if (!heartbeatReceived) {
-                                SysLog.logger.info("Timeout occurred, switching state from FOLLOWER to CANDIDATE");
-                                this.currentState = StateType.CANDIDATE;
-                                break;
-                            }
-                            else if (heartbeatReceived && this.votedFor != -1) {
-                                break;
-                            }
+                    this.currentStateLock.lock();
+                    this.votedForLock.lock();
+                    try {
+                        if (!heartbeatReceived) {
+                            SysLog.logger.info("Timeout occurred, switching state from FOLLOWER to CANDIDATE");
+                            this.currentState = StateType.CANDIDATE;
                         }
-                        finally {
-                            this.votedForLock.unlock();
-                            this.currentStateLock.unlock();
-                        }
-                    }
-                    catch (InterruptedException e) {
-                        SysLog.logger.warning("State machine was interrupted during execution: " + e.getMessage());
-                        e.printStackTrace();
                     }
                     finally {
-                        this.timeoutLock.unlock();
+                        this.votedForLock.unlock();
+                        this.currentStateLock.unlock();
                     }
+                }
+                catch (InterruptedException e) {
+                    SysLog.logger.warning("State machine was interrupted during execution: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                finally {
+                    this.timeoutLock.unlock();
                 }
 
                 SysLog.logger.fine("Finished execution in FOLLOWER state");
@@ -224,6 +254,12 @@ public class StateMachine {
                 this.currentTermLock.lock();
                 this.votedForLock.lock();
                 try {
+                    // Make sure the server is still a candidate
+                    if(this.currentState != StateType.CANDIDATE) {
+                        SysLog.logger.fine("Execution in CANDIDATE state was safely aborted");
+                        break;
+                    }
+
                     this.currentTerm++;
                     this.votedFor = this.server.getServerId();
                     ret = null;
@@ -272,10 +308,8 @@ public class StateMachine {
                             FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
                             if (futureTask.isDone()) {
                                 ret = futureTask.get();
-
-                                SysLog.logger.info("Vote request completed for future task " + futureTask +
-                                        " with a value of " + ret.getValue() + " and a condition of " +
-                                        ret.getCondition());
+                                SysLog.logger.info("Vote request completed with a value of " + ret.getValue() +
+                                        " and a condition of " + ret.getCondition());
 
                                 this.currentTermLock.lock();
                                 try {
@@ -333,12 +367,10 @@ public class StateMachine {
                 // Only check if still a candidate
                 this.currentStateLock.lock();
                 try {
-                    if (this.currentState == StateType.CANDIDATE) {
-                        if (votesReceived >= majorityVotes) {
-                            SysLog.logger.info("Switching state from CANDIDATE to LEADER");
-                            this.currentState = StateType.LEADER;
-                            this.leaderId = this.server.getServerId();
-                        }
+                    if (this.currentState == StateType.CANDIDATE && votesReceived >= majorityVotes) {
+                        SysLog.logger.info("Switching state from CANDIDATE to LEADER");
+                        this.currentState = StateType.LEADER;
+                        this.leaderId = this.server.getServerId();
                     }
                 }
                 finally {
@@ -355,6 +387,12 @@ public class StateMachine {
                 this.currentTermLock.lock();
                 this.votedForLock.lock();
                 try {
+                    // Make sure the server is still a leader
+                    if(this.currentState != StateType.LEADER) {
+                        SysLog.logger.fine("Execution in LEADER state was safely aborted");
+                        break;
+                    }
+
                     ret = null;
                     logActivity = false;
                     futureTaskList = new ArrayList<>();
@@ -416,11 +454,9 @@ public class StateMachine {
                             FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
                             if (futureTask.isDone()) {
                                 ret = futureTask.get();
-
                                 if(logActivity) {
-                                    SysLog.logger.info("Append entry completed for future task " + futureTask +
-                                            " with a value of " + ret.getValue() + " and a condition of " +
-                                            ret.getCondition());
+                                    SysLog.logger.info("Vote request completed with a value of " + ret.getValue() +
+                                            " and a condition of " + ret.getCondition());
                                 }
 
                                 this.currentTermLock.lock();

@@ -53,7 +53,7 @@ public class Administrator extends Client {
                     System.out.println("Would you like to add new servers or delete existing ones?");
                     System.out.println();
                     input = reader.readLine();
-                    input = input.toUpperCase();
+                    input = input.toUpperCase().trim();
                     System.out.println();
 
                     switch(input) {
@@ -64,7 +64,7 @@ public class Administrator extends Client {
                             System.out.println();
 
                             try {
-                                command.setServerAmount(Integer.parseInt(reader.readLine()));
+                                command.setServerAmount(Integer.parseInt(reader.readLine().trim()));
                             }
                             catch(NumberFormatException e) {
 
@@ -88,7 +88,7 @@ public class Administrator extends Client {
                             System.out.println();
 
                             try {
-                                command.setServerAmount(Integer.parseInt(reader.readLine()));
+                                command.setServerAmount(Integer.parseInt(reader.readLine().trim()));
                             } catch (NumberFormatException e) {
                                 System.out.println("Invalid user input: " + e.getMessage());
                                 SysLog.logger.warning("Invalid user input: " + e.getMessage());

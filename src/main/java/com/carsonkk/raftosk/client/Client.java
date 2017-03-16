@@ -29,16 +29,18 @@ public class Client {
     //region Public Methods
 
     // Top-level handler for client interactions, delegates between Administrator and Customer options
-    public void handleClient() throws IOException {
+    public int handleClient() throws IOException {
         SysLog.logger.finest("Entering method");
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         String input;
         RPCInterface server = null;
-        ReturnValueRPC ret = null;
+        ReturnValueRPC returnValueRPC = null;
         int serverId;
+        int ret = 0;
         boolean commandResolved = false;
         Command command = new Command();
+        command.
 
         // Initial heading
         System.out.println(" /''''''''''''''''''''''''''''\\");
@@ -53,21 +55,21 @@ public class Client {
                 " for potentially available server IDs)");
         System.out.println();
         try {
-            serverId = Integer.parseInt(reader.readLine());
+            serverId = Integer.parseInt(reader.readLine().trim());
             System.out.println();
         }
         catch(NumberFormatException e) {
             System.out.println("Invalid user input: " + e.getMessage());
             SysLog.logger.warning("Invalid user input: " + e.getMessage());
             SysLog.logger.finest("Exiting method");
-            return;
+            return 1;
         }
 
         // Outside valid server ID range
         if(serverId < 1 || serverId > ServerProperties.getMaxServerCount()) {
             System.out.println("Invalid server ID selected, please try again");
             SysLog.logger.finest("Exiting method");
-            return;
+            return 1;
         }
 
         // Connect to the server
@@ -76,10 +78,11 @@ public class Client {
                     serverId, true);
             if(server == null) {
                 serverId = nextServerId(serverId);
-                System.out.println("The chosen server was not available, retrying...");
+                System.out.println("The chosen server was not available, trying next potential server...");
                 System.out.println();
             }
         }
+        System.out.println("Connected to Server " + serverId + "!");
 
         // Handle client-server interaction
         while (true) {
@@ -88,7 +91,7 @@ public class Client {
             System.out.println("(for help with commands, type \"help\")");
             System.out.println();
             input = reader.readLine();
-            input = input.toUpperCase();
+            input = input.toUpperCase().trim();
             System.out.println();
 
             // Check for invalid commands or the quit command
@@ -97,7 +100,7 @@ public class Client {
                 if(quitCommand) {
                     System.out.println("Closing connection with the server and quitting...");
                     SysLog.logger.finest("Exiting method");
-                    return;
+                    return 1;
                 }
                 // Restart loop if a valid command was not given
                 else if(invalidCommand) {
@@ -111,7 +114,7 @@ public class Client {
             }
 
             // Submit command
-            ret = server.submitCommandRPC(command);
+            returnValueRPC = server.submitCommandRPC(command);
             break;
         }
 
@@ -119,27 +122,28 @@ public class Client {
         while(!commandResolved) {
             switch(command.getCommandType()) {
                 case BUY: {
-                    if(ret == null) {
+                    if(returnValueRPC == null) {
                         System.out.println("A critical error occurred causing the client to crash while processing your " +
                                 "transaction, please try again");
+                        ret = 1;
                         commandResolved = true;
                     }
                     else {
-                        if(ret.getCondition()) {
+                        if(returnValueRPC.getCondition()) {
                             System.out.println("Your request for " + command.getTicketAmount() +
                                     " tickets has been successfully completed");
-                            System.out.println("(Only " + ret.getValue() + " tickets remain, come again soon!)");
+                            System.out.println("(Only " + returnValueRPC.getValue() + " tickets left, come again soon!)");
                             commandResolved = true;
                         }
                         else {
-                            if(ret.getValue() == -1) {
+                            if(returnValueRPC.getValue() == -1) {
                                 System.out.println("The chosen server was either not the leader or not available, " +
                                         "retrying...");
                                 System.out.println();
                             }
                             else {
                                 System.out.println("Your request for " + command.getTicketAmount() +
-                                        " tickets could not be completed (there were only " + ret.getValue() +
+                                        " tickets could not be completed (there were only " + returnValueRPC.getValue() +
                                         " tickets left), please try again");
                                 commandResolved = true;
                             }
@@ -156,12 +160,13 @@ public class Client {
                     server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
                             ServerProperties.getBaseServerPort() + serverId, true);
                 }
-                ret = server.submitCommandRPC(command);
+                returnValueRPC = server.submitCommandRPC(command);
             }
         }
         System.out.println();
 
         SysLog.logger.finest("Exiting method");
+        return ret;
     }
 
     // Process commands in the cases of quiting and helping

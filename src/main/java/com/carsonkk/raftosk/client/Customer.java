@@ -42,7 +42,7 @@ public class Customer extends Client {
                     System.out.println();
 
                     try {
-                        command.setTicketAmount(Integer.parseInt(reader.readLine()));
+                        command.setTicketAmount(Integer.parseInt(reader.readLine().trim()));
                     } catch (NumberFormatException e) {
                         System.out.println("Invalid user input: " + e.getMessage());
                         SysLog.logger.warning("Invalid user input: " + e.getMessage());
