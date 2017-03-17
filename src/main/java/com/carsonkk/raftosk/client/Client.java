@@ -5,6 +5,7 @@ import main.java.com.carsonkk.raftosk.global.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.UUID;
 
 // Top-level user interface for interacting with server system
 public class Client {
@@ -42,9 +43,9 @@ public class Client {
         Command command = new Command();
 
         // Initial heading
-        System.out.println(" /''''''''''''''''''''''''''''\\");
-        System.out.println("|      Welcome to Raftosk      |");
-        System.out.println(" \\............................/");
+        System.out.println("''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\\");
+        System.out.println("|                     Welcome to Raftosk                     |");
+        System.out.println("............................................................/");
         System.out.println();
         System.out.println();
 
@@ -112,7 +113,8 @@ public class Client {
                 }
             }
 
-            // Submit command
+            // Set UUID and submit command
+            command.setUniqueId(UUID.randomUUID());
             returnValueRPC = server.submitCommandRPC(command);
             break;
         }
@@ -148,6 +150,47 @@ public class Client {
                             }
                         }
                     }
+                    break;
+                }
+                case SHOW: {
+                    if(returnValueRPC == null || !returnValueRPC.getCondition()) {
+                        System.out.println("A critical error occurred causing the client to crash while processing your " +
+                                "transaction, please try again");
+                        ret = 1;
+                    }
+                    else {
+                        System.out.println("''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\\");
+                        System.out.println("SERVER STATE:");
+                        System.out.println("    " + returnValueRPC.getTicketPool() + " tickets are left");
+                        System.out.println();
+                        System.out.println("SERVER LOG:");
+                        if(returnValueRPC.getLog().size() == 1) {
+                            System.out.println("    (the log is currently empty)");
+                        }
+                        else {
+                            for(int i = 1; i < returnValueRPC.getLog().size(); i++) {
+                                System.out.println("    Entry " + i + ":");
+                                System.out.println("        UUID:       " + returnValueRPC.getLog().get(i).getCommand().getUniqueId());
+                                System.out.println("        Term:       " + returnValueRPC.getLog().get(i).getTerm());
+                                System.out.println("        Command:    " + returnValueRPC.getLog().get(i).getCommand().getCommandType());
+                                if(returnValueRPC.getLog().get(i).getCommand().getCommandType() == CommandType.BUY) {
+                                    System.out.println("        Amount:     " + returnValueRPC.getLog().get(i).getCommand().getTicketAmount());
+                                }
+                                else if(returnValueRPC.getLog().get(i).getCommand().getCommandType() == CommandType.CHANGE) {
+                                    System.out.println("        Type:       " + returnValueRPC.getLog().get(i).getCommand().getChangeType());
+                                    System.out.println("        Amount:     " + returnValueRPC.getLog().get(i).getCommand().getServerAmount());
+                                }
+                                if(returnValueRPC.getCommitIndex() >= i) {
+                                    System.out.println("        Committed?: Yes");
+                                }
+                                else {
+                                    System.out.println("        Committed?: No");
+                                }
+                            }
+                        }
+                        System.out.println("............................................................/");
+                    }
+                    commandResolved = true;
                     break;
                 }
             }

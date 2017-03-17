@@ -96,149 +96,166 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
         this.server.getStateMachine().getAppendEntriesLock().lock();
         try {
-            int successfulAppends = 0;
-            List<FutureTask<ReturnValueRPC>> futureTaskList = new ArrayList<>();
-            Iterator<FutureTask<ReturnValueRPC>> futureTaskIterator;
-            Callable<ReturnValueRPC> callable;
-            RPCInterface remoteLeader;
-            RPCInterface remoteFollower;
-            ReturnValueRPC remoteReturnValueRPC = new ReturnValueRPC();
-
-
             this.server.getStateMachine().getCurrentStateLock().lock();
             this.server.getStateMachine().getLeaderIdLock().lock();
             this.server.getStateMachine().getLogLock().lock();
             try {
+                int successfulAppends = 0;
+                boolean exitWithoutUpdate = false;
+                List<FutureTask<ReturnValueRPC>> futureTaskList = new ArrayList<>();
+                Iterator<FutureTask<ReturnValueRPC>> futureTaskIterator;
+                Callable<ReturnValueRPC> callable;
+                RPCInterface remoteFollower;
+                ReturnValueRPC remoteReturnValueRPC = new ReturnValueRPC();
+                RPCInterface remoteLeader;
+
                 // Check if this is the leader server
-                if (this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
+                if (this.server.getStateMachine().getCurrentState() == StateType.LEADER ||
+                        command.getCommandType() == CommandType.SHOW) {
+                    // Handle command-specific modifications
                     switch (command.getCommandType()) {
                         case BUY: {
                             SysLog.logger.info("Received BUY command for " + command.getTicketAmount() + " tickets");
 
                             this.server.getTicketPoolLock().lock();
-                            this.server.getStateMachine().getCurrentTermLock().lock();
-                            this.server.getStateMachine().getLastLogIndexLock().lock();
-                            this.server.getStateMachine().getLastLogTermLock().lock();
-                            this.server.getStateMachine().getPrevLogIndexLock().lock();
-                            this.server.getStateMachine().getPrevLogTermLock().lock();
-                            this.server.getStateMachine().getCommitIndexLock().lock();
                             try {
                                 if (command.getTicketAmount() <= this.server.getTicketPool()) {
                                     // Update the ticket pool
                                     this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
-
-                                    // Update the local log and state machine
-                                    int index = this.server.getStateMachine().getLastLogIndex() + 1;
-                                    LogEntry logEntry = new LogEntry(index, this.server.getStateMachine().getCurrentTerm(),
-                                            command);
-                                    this.server.getStateMachine().getLog().add(logEntry);
-                                    this.server.getStateMachine().setPrevLogIndex(this.server.getStateMachine().getLastLogIndex());
-                                    this.server.getStateMachine().setPrevLogTerm(this.server.getStateMachine().getLastLogTerm());
-                                    this.server.getStateMachine().setLastLogIndex(index);
-                                    this.server.getStateMachine().setLastLogTerm(this.server.getStateMachine().getCurrentTerm());
-
-                                    // Send out AppendEntriesRPC with new entry
-                                    for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
-                                        // Don't send vote for this server
-                                        if (i != this.server.getServerId()) {
-                                            // Connect to the server
-                                            remoteFollower = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                                                    ServerProperties.getBaseServerPort() + i, true);
-                                            if (remoteFollower == null) {
-                                                SysLog.logger.info("Server " + i +
-                                                        " is currently offline, couldn't send append entry RPC");
-                                                continue;
-                                            }
-
-                                            callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteFollower,
-                                                    this.server.getServerId(), this.server.getStateMachine().getCurrentTerm(),
-                                                    this.server.getStateMachine().getPrevLogIndex(),
-                                                    this.server.getStateMachine().getPrevLogTerm(),
-                                                    this.server.getStateMachine().getLog(),
-                                                    this.server.getStateMachine().getCommitIndex());
-                                            FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
-                                            futureTaskList.add(futureTask);
-                                            this.server.getStateMachine().getExecutorService().submit(futureTask);
-                                        }
-                                    }
-
-                                    while (successfulAppends < ServerProperties.getMajorityVote() - 1 &&
-                                            remoteReturnValueRPC != null) {
-                                        try {
-                                            futureTaskIterator = futureTaskList.iterator();
-                                            while (futureTaskIterator.hasNext()) {
-                                                FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
-                                                if (futureTask.isDone()) {
-                                                    remoteReturnValueRPC = futureTask.get();
-                                                    // Received true, either from successful append or heartbeat
-                                                    if (remoteReturnValueRPC.getCondition()) {
-                                                        if (remoteReturnValueRPC.getValue() ==
-                                                                this.server.getStateMachine().getCurrentTerm()) {
-                                                            successfulAppends++;
-                                                        } else {
-                                                            System.out.println("hi");
-                                                        }
-                                                    }
-                                                    // Received false, either this leader is further ahead or the remote is ahead
-                                                    else {
-                                                        if (remoteReturnValueRPC.getValue() >
-                                                                this.server.getStateMachine().getCurrentTerm()) {
-                                                            returnValueRPC.setValue(-1);
-                                                            returnValueRPC.setCondition(false);
-                                                            SysLog.logger.info("Received a response from a server with a " +
-                                                                    "higher term while trying to append a BUY command");
-                                                            remoteReturnValueRPC = null;
-                                                            break;
-                                                        } else {
-                                                            System.out.println("yo");
-                                                        }
-                                                    }
-                                                    futureTaskIterator.remove();
-                                                }
-                                            }
-                                        } catch (InterruptedException | ExecutionException e) {
-                                            SysLog.logger.info("Exception occurred: " + e.getMessage());
-                                        }
-                                    }
-
-                                    if (successfulAppends >= ServerProperties.getMajorityVote() - 1) {
-                                        // Set the return value
-                                        this.server.getStateMachine().setCommitIndex(index);
-                                        returnValueRPC.setValue(this.server.getTicketPool());
-                                        returnValueRPC.setCondition(true);
-                                        SysLog.logger.info("Successfully sold " + command.getTicketAmount() + " tickets");
-                                    }
                                 } else {
                                     returnValueRPC.setValue(this.server.getTicketPool());
                                     returnValueRPC.setCondition(false);
+                                    exitWithoutUpdate = true;
                                     SysLog.logger.info("Invalid request for " + command.getTicketAmount() +
                                             " tickets (only " + this.server.getTicketPool() + " left)");
                                 }
                             } finally {
                                 this.server.getTicketPoolLock().unlock();
-                                this.server.getStateMachine().getCurrentTermLock().unlock();
-                                this.server.getStateMachine().getLastLogIndexLock().unlock();
-                                this.server.getStateMachine().getLastLogTermLock().unlock();
-                                this.server.getStateMachine().getPrevLogIndexLock().unlock();
-                                this.server.getStateMachine().getPrevLogTermLock().unlock();
-                                this.server.getStateMachine().getCommitIndexLock().unlock();
                             }
+
+                            SysLog.logger.info("Finished BUY command for " + command.getTicketAmount() + " tickets");
                             break;
                         }
                         case SHOW: {
                             SysLog.logger.info("Received SHOW command");
-
+                            SysLog.logger.info("Finished SHOW command");
                             break;
                         }
                         case CHANGE: {
                             SysLog.logger.info("Received CHANGE command");
-
+                            SysLog.logger.info("Finished CHANGE command");
                             break;
                         }
-                        default: {
-                            SysLog.logger.severe("An invalid CommandType was received by the server: " +
-                                    command.getCommandType());
-                            break;
+                    }
+
+                    // If successful, update local and remote logs
+                    if(!exitWithoutUpdate) {
+                        this.server.getTicketPoolLock().lock();
+                        this.server.getStateMachine().getCurrentTermLock().lock();
+                        this.server.getStateMachine().getLastLogIndexLock().lock();
+                        this.server.getStateMachine().getLastLogTermLock().lock();
+                        this.server.getStateMachine().getPrevLogIndexLock().lock();
+                        this.server.getStateMachine().getPrevLogTermLock().lock();
+                        this.server.getStateMachine().getCommitIndexLock().lock();
+                        try {
+                            // Update the local log and state machine
+                            int index = this.server.getStateMachine().getLastLogIndex() + 1;
+                            LogEntry logEntry = new LogEntry(index, this.server.getStateMachine().getCurrentTerm(), command);
+                            this.server.getStateMachine().getLog().add(logEntry);
+                            this.server.getStateMachine().setPrevLogIndex(this.server.getStateMachine().getLastLogIndex());
+                            this.server.getStateMachine().setPrevLogTerm(this.server.getStateMachine().getLastLogTerm());
+                            this.server.getStateMachine().setLastLogIndex(index);
+                            this.server.getStateMachine().setLastLogTerm(this.server.getStateMachine().getCurrentTerm());
+
+                            // Send out AppendEntriesRPC with new entry
+                            for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
+                                // Don't send vote for this server
+                                if (i != this.server.getServerId()) {
+                                    // Connect to the server
+                                    remoteFollower = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
+                                            ServerProperties.getBaseServerPort() + i, true);
+                                    if (remoteFollower == null) {
+                                        SysLog.logger.info("Server " + i +
+                                                " is currently offline, couldn't send append entry RPC");
+                                        continue;
+                                    }
+
+                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteFollower,
+                                            this.server.getServerId(), this.server.getStateMachine().getCurrentTerm(),
+                                            this.server.getStateMachine().getPrevLogIndex(),
+                                            this.server.getStateMachine().getPrevLogTerm(),
+                                            this.server.getStateMachine().getLog(),
+                                            this.server.getStateMachine().getCommitIndex());
+                                    FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
+                                    futureTaskList.add(futureTask);
+                                    this.server.getStateMachine().getExecutorService().submit(futureTask);
+                                }
+                            }
+
+                            // Get a majority of append responses
+                            while (successfulAppends < ServerProperties.getMajorityVote() - 1 &&
+                                    remoteReturnValueRPC != null) {
+                                try {
+                                    futureTaskIterator = futureTaskList.iterator();
+                                    while (futureTaskIterator.hasNext()) {
+                                        FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
+                                        if (futureTask.isDone()) {
+                                            remoteReturnValueRPC = futureTask.get();
+                                            // Received true, either from successful append or heartbeat
+                                            if (remoteReturnValueRPC.getCondition()) {
+                                                if (remoteReturnValueRPC.getValue() ==
+                                                        this.server.getStateMachine().getCurrentTerm()) {
+                                                    successfulAppends++;
+                                                } else {
+                                                    System.out.println("hi");
+                                                }
+                                            }
+                                            // Received false, either this leader is further ahead or the remote is ahead
+                                            else {
+                                                if (remoteReturnValueRPC.getValue() >
+                                                        this.server.getStateMachine().getCurrentTerm()) {
+                                                    returnValueRPC.setValue(-1);
+                                                    returnValueRPC.setCondition(false);
+                                                    SysLog.logger.info("Received a response from a server with a " +
+                                                            "higher term while trying to append a " +
+                                                            command.getCommandType() + " command");
+                                                    remoteReturnValueRPC = null;
+                                                    break;
+                                                } else {
+                                                    System.out.println("yo");
+                                                }
+                                            }
+                                            futureTaskIterator.remove();
+                                        }
+                                    }
+                                } catch (InterruptedException | ExecutionException e) {
+                                    SysLog.logger.info("Exception occurred: " + e.getMessage());
+                                }
+                            }
+
+                            // Succeeded in obtaining majority appends
+                            if (successfulAppends >= ServerProperties.getMajorityVote() - 1) {
+                                // Set the return value
+                                this.server.getStateMachine().setCommitIndex(index);
+                                returnValueRPC.setValue(this.server.getTicketPool());
+                                returnValueRPC.setCondition(true);
+                                if(command.getCommandType() == CommandType.SHOW) {
+                                    returnValueRPC.setTicketPool(this.server.getTicketPool());
+                                    returnValueRPC.setLog(this.server.getStateMachine().getLog());
+                                    returnValueRPC.setCommitIndex(this.server.getStateMachine().getCommitIndex());
+                                }
+                                SysLog.logger.info("Successfully executed the " + command.getCommandType() + " command");
+                            }
+
+                        }
+                        finally {
+                            this.server.getTicketPoolLock().unlock();
+                            this.server.getStateMachine().getCurrentTermLock().unlock();
+                            this.server.getStateMachine().getLastLogIndexLock().unlock();
+                            this.server.getStateMachine().getLastLogTermLock().unlock();
+                            this.server.getStateMachine().getPrevLogIndexLock().unlock();
+                            this.server.getStateMachine().getPrevLogTermLock().unlock();
+                            this.server.getStateMachine().getCommitIndexLock().unlock();
                         }
                     }
                 } else {

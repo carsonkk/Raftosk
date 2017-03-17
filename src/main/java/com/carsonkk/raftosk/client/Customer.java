@@ -44,13 +44,19 @@ public class Customer extends Client {
                     try {
                         command.setTicketAmount(Integer.parseInt(reader.readLine().trim()));
                     } catch (NumberFormatException e) {
+                        System.out.println();
                         System.out.println("Invalid user input: " + e.getMessage());
                         SysLog.logger.warning("Invalid user input: " + e.getMessage());
                         SysLog.logger.finest("Exiting method");
                         return false;
                     }
-
                     System.out.println();
+
+                    if(command.getTicketAmount() < 0) {
+                        System.out.println("You cannot buy a negative amount of tickets");
+                        SysLog.logger.finest("Exiting method");
+                        return false;
+                    }
                     System.out.println("Sending request to purchase " + command.getTicketAmount() +
                             " tickets to the server for processing, please wait...");
                     System.out.println();
