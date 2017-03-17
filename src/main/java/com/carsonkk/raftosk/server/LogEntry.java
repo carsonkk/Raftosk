@@ -3,10 +3,11 @@ package main.java.com.carsonkk.raftosk.server;
 import main.java.com.carsonkk.raftosk.global.Command;
 import main.java.com.carsonkk.raftosk.global.SysLog;
 
+import java.io.Serializable;
 import java.util.UUID;
 
 // Keep track of info for each entry into the system's transaction log
-public class LogEntry {
+public class LogEntry implements Serializable {
     //region Private Members
 
     private int index;

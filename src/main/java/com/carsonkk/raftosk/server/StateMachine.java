@@ -28,6 +28,7 @@ public class StateMachine {
     private final ReentrantLock votedForLock = new ReentrantLock();
     private final ReentrantLock leaderIdLock = new ReentrantLock();
     private final ReentrantLock isWaitingLock = new ReentrantLock();
+    private final ReentrantLock appendEntriesLock = new ReentrantLock();
     private final Lock timeoutLock = new ReentrantLock();
     private final Condition timeoutCondition = timeoutLock.newCondition();
 
@@ -132,6 +133,10 @@ public class StateMachine {
 
     public ReentrantLock getIsWaitingLock(){
         return this.isWaitingLock;
+    }
+
+    public ReentrantLock getAppendEntriesLock() {
+        return this.appendEntriesLock;
     }
 
     public Lock getTimeoutLock() {
@@ -265,7 +270,6 @@ public class StateMachine {
 
                     electionTimeout = TimeUnit.MILLISECONDS.toNanos(getRandomElectionTimeout());
                     heartbeatReceived = timeoutCondition.await(electionTimeout, TimeUnit.NANOSECONDS);
-                    SysLog.logger.info("woken up");
                     this.isWaitingLock.lock();
                     try {
                         this.isWaiting = false;
@@ -273,10 +277,8 @@ public class StateMachine {
                     finally {
                         this.isWaitingLock.unlock();
                     }
-                    SysLog.logger.info("wait up");
                     this.currentStateLock.lock();
                     this.votedForLock.lock();
-                    SysLog.logger.info("other up");
                     try {
                         if (!heartbeatReceived) {
                             SysLog.logger.info("Timeout occurred, switching state from FOLLOWER to CANDIDATE");
@@ -294,7 +296,7 @@ public class StateMachine {
                 }
                 catch (InterruptedException e) {
                     SysLog.logger.warning("State machine was interrupted during execution: " + e.getMessage());
-                    e.printStackTrace();
+                    //e.printStackTrace();
                 }
                 finally {
                     this.timeoutLock.unlock();
@@ -404,7 +406,7 @@ public class StateMachine {
                     }
                     catch (InterruptedException | ExecutionException e) {
                         SysLog.logger.warning("State machine was interrupted during execution: " + e.getMessage());
-                        e.printStackTrace();
+                        //e.printStackTrace();
                     }
 
                     // Finish keeping track of time, update electionTimeout
@@ -438,134 +440,132 @@ public class StateMachine {
             case LEADER: {
                 SysLog.logger.fine("Began execution in LEADER state");
 
-                this.currentStateLock.lock();
-                this.currentTermLock.lock();
-                this.votedForLock.lock();
+                this.appendEntriesLock.lock();
                 try {
-                    // Make sure the server is still a leader
-                    if(this.currentState != StateType.LEADER) {
-                        SysLog.logger.fine("Execution in LEADER state was safely aborted");
-                        break;
-                    }
-
-                    ret = null;
-                    logActivity = false;
-                    futureTaskList = new ArrayList<>();
-
-                    // Determine whether to log activity based on rpc type
-                    if(SysLog.level > 4) {
-                        logActivity = true;
-                    }
-                    else {
-                        for(int i = 0; i < this.nextIndexes.size(); i++) {
-                            if(this.lastLogIndex >= this.nextIndexes.get(i)) {
-                                logActivity = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    // Send AppendEntriesRPCs to all possible servers
-                    for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
-                        // Don't send vote for this server
-                        if (i != this.server.getServerId()) {
-                            // Connect to the server
-                            remoteServer = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                                    ServerProperties.getBaseServerPort() + i, logActivity);
-                            if (remoteServer == null) {
-                                if(logActivity) {
-                                    SysLog.logger.info("Server " + i +
-                                            " is currently offline, couldn't send append entries RPC");
-                                }
-                                continue;
-                            }
-
-                            // Submit callable and add future to list
-                            callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
-                                    this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
-                                    null, this.commitIndex);
-                            FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
-                            futureTaskList.add(futureTask);
-                            this.executorService.submit(futureTask);
-                            if(logActivity) {
-                                SysLog.logger.info("Added server " + i + " to the list of appended-entry servers");
-                            }
-                        }
-                    }
-                }
-                finally {
-                    this.currentStateLock.unlock();
-                    this.currentTermLock.unlock();
-                    this.votedForLock.unlock();
-                }
-
-                // Set a maximum election timeout and attempt to get at least a majority of votes
-                electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getHeartbeatFrequency());
-                while (electionTimeout > 0 && futureTaskList.size() > 0) {
-                    // Start keeping track of time
-                    startTime = System.nanoTime();
+                    this.currentStateLock.lock();
+                    this.currentTermLock.lock();
+                    this.votedForLock.lock();
                     try {
-                        futureTaskIterator = futureTaskList.iterator();
-                        while(futureTaskIterator.hasNext()) {
-                            FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
-                            if (futureTask.isDone()) {
-                                ret = futureTask.get();
-                                if(logActivity) {
-                                    SysLog.logger.info("Heartbeat completed with a value of " + ret.getValue() +
-                                            " and a condition of " + ret.getCondition());
+                        // Make sure the server is still a leader
+                        if (this.currentState != StateType.LEADER) {
+                            SysLog.logger.fine("Execution in LEADER state was safely aborted");
+                            break;
+                        }
+
+                        ret = null;
+                        logActivity = false;
+                        futureTaskList = new ArrayList<>();
+
+                        // Determine whether to log activity based on rpc type
+                        if (SysLog.level > 4) {
+                            logActivity = true;
+                        } else {
+                            for (int i = 0; i < this.nextIndexes.size(); i++) {
+                                if (this.lastLogIndex >= this.nextIndexes.get(i)) {
+                                    logActivity = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Send AppendEntriesRPCs to all possible servers
+                        for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
+                            // Don't send vote for this server
+                            if (i != this.server.getServerId()) {
+                                // Connect to the server
+                                remoteServer = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
+                                        ServerProperties.getBaseServerPort() + i, logActivity);
+                                if (remoteServer == null) {
+                                    if (logActivity) {
+                                        SysLog.logger.info("Server " + i +
+                                                " is currently offline, couldn't send append entries RPC");
+                                    }
+                                    continue;
                                 }
 
+                                // Submit callable and add future to list
+                                callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
+                                        this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
+                                        null, this.commitIndex);
+                                FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
+                                futureTaskList.add(futureTask);
+                                this.executorService.submit(futureTask);
+                                if (logActivity) {
+                                    SysLog.logger.info("Added server " + i + " to the list of appended-entry servers");
+                                }
+                            }
+                        }
+                    } finally {
+                        this.currentStateLock.unlock();
+                        this.currentTermLock.unlock();
+                        this.votedForLock.unlock();
+                    }
+
+                    // Set a maximum election timeout and attempt to get at least a majority of votes
+                    electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getHeartbeatFrequency());
+                    while (electionTimeout > 0) {
+                        // Start keeping track of time
+                        startTime = System.nanoTime();
+                        try {
+                            futureTaskIterator = futureTaskList.iterator();
+                            if (futureTaskIterator.hasNext()) {
+                                while (futureTaskIterator.hasNext()) {
+                                    FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
+                                    if (futureTask.isDone()) {
+                                        ret = futureTask.get();
+                                        if (logActivity) {
+                                            SysLog.logger.fine("Heartbeat completed with a value of " + ret.getValue() +
+                                                    " and a condition of " + ret.getCondition());
+                                        }
+
+                                        this.currentTermLock.lock();
+                                        try {
+                                            if (ret.getCondition() == false || ret.getValue() > this.currentTerm) {
+                                                break;
+                                            }
+                                            ret = null;
+                                            futureTaskIterator.remove();
+                                        } finally {
+                                            this.currentTermLock.unlock();
+                                        }
+                                    }
+                                }
+
+                                // Handle stepping down if an existing candidate or leader was found
+                                this.currentStateLock.lock();
                                 this.currentTermLock.lock();
+                                this.votedForLock.lock();
                                 try {
-                                    if (ret.getCondition() == false || ret.getValue() > this.currentTerm) {
+                                    if (ret != null && ret.getValue() > this.currentTerm) {
+                                        SysLog.logger.info("Discovered a server with a higher term, stepping down");
+                                        this.currentTerm = ret.getValue();
+                                        this.votedFor = -1;
+                                        SysLog.logger.info("Switching state from LEADER to FOLLOWER");
+                                        this.currentState = StateType.FOLLOWER;
+                                        this.leaderId = -1;
                                         break;
                                     }
-                                    ret = null;
-                                    futureTaskIterator.remove();
-                                }
-                                finally {
+                                } finally {
+                                    this.currentStateLock.unlock();
                                     this.currentTermLock.unlock();
+                                    this.votedForLock.unlock();
                                 }
                             }
+                        } catch (InterruptedException | ExecutionException e) {
                         }
 
-                        // Handle stepping down if an existing candidate or leader was found
-                        this.currentStateLock.lock();
-                        this.currentTermLock.lock();
-                        this.votedForLock.lock();
-                        try {
-                            if (ret != null && ret.getValue() > this.currentTerm) {
-                                SysLog.logger.info("Discovered a server with a higher term, stepping down");
-                                this.currentTerm = ret.getValue();
-                                this.votedFor = -1;
-                                SysLog.logger.info("Switching state from LEADER to FOLLOWER");
-                                this.currentState = StateType.FOLLOWER;
-                                this.leaderId = -1;
-                                break;
-                            }
-                        }
-                        finally {
-                            this.currentStateLock.unlock();
-                            this.currentTermLock.unlock();
-                            this.votedForLock.unlock();
-                        }
+                        // Finish keeping track of time, update electionTimeout
+                        endTime = System.nanoTime();
+                        electionTimeout -= (endTime - startTime);
                     }
-                    catch (InterruptedException | ExecutionException e) { }
 
-                    // Finish keeping track of time, update electionTimeout
-                    endTime = System.nanoTime();
-                    electionTimeout -= (endTime - startTime);
-                }
-
-                if(electionTimeout < 0) {
-
-                }
-
-                // Cancel any remaining calls
-                futureTaskIterator = futureTaskList.iterator();
-                while(futureTaskIterator.hasNext()) {
-                    FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
-                    futureTask.cancel(false);
+                    // Cancel any remaining calls
+                    futureTaskIterator = futureTaskList.iterator();
+                    while (futureTaskIterator.hasNext()) {
+                        futureTaskIterator.next().cancel(false);
+                    }
+                } finally {
+                    this.appendEntriesLock.unlock();
                 }
 
                 SysLog.logger.fine("Finished execution in LEADER state");
