@@ -6,8 +6,12 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 
 // Multiplex between various RPC calls, handle all RMI-related setup/teardown
 public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Callable<ReturnValueRPC>{
@@ -31,8 +35,8 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     private int leaderTerm;
     private int prevLogIndex;
     private int prevLogTerm;
-    private List<LogEntry> entries;
-    private int lastCommitIndex;
+    private List<LogEntry> log;
+    private int commitIndex;
 
     //endregion
 
@@ -68,17 +72,17 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     }
 
     public HandleRPC(Server server, RPCType rpc, RPCInterface remoteServer, int leaderId, int leaderTerm, int prevLogIndex,
-                     int prevLogTerm, List<LogEntry> entries, int lastCommitIndex) throws RemoteException {
+                     int prevLogTerm, List<LogEntry> log, int commitIndex) throws RemoteException {
         this(server, rpc, remoteServer);
         this.leaderId = leaderId;
         this.leaderTerm = leaderTerm;
         this.prevLogIndex = prevLogIndex;
         this.prevLogTerm = prevLogTerm;
-        this.entries = entries;
-        this.lastCommitIndex = lastCommitIndex;
+        this.log = log;
+        this.commitIndex = commitIndex;
         SysLog.logger.finer("Created new RPC handler with leader ID " + this.leaderId + ", leader term " +
                 this.leaderTerm + ", prev log index " + this.prevLogIndex + ", prev log term " + this.prevLogTerm +
-                ", entries " + this.entries + ", and last commit index " + this.lastCommitIndex);
+                ", log " + this.log + ", and commit index " + this.commitIndex);
     }
 
     //endregion
@@ -89,8 +93,13 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     public ReturnValueRPC submitCommandRPC(Command command) throws RemoteException {
         SysLog.logger.finest("Entering method");
 
+        int successfulAppends = 0;
+        List<FutureTask<ReturnValueRPC>> futureTaskList = new ArrayList<>();
+        Iterator<FutureTask<ReturnValueRPC>> futureTaskIterator;
+        Callable<ReturnValueRPC> callable;
         RPCInterface remoteLeader;
         RPCInterface remoteFollower;
+        ReturnValueRPC remoteReturnValueRPC = new ReturnValueRPC();
         ReturnValueRPC returnValueRPC = new ReturnValueRPC();
 
         this.server.getStateMachine().getCurrentStateLock().lock();
@@ -104,6 +113,12 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                         SysLog.logger.info("Received BUY command for " + command.getTicketAmount() + " tickets");
 
                         this.server.getTicketPoolLock().lock();
+                        this.server.getStateMachine().getCurrentTermLock().lock();
+                        this.server.getStateMachine().getLastLogIndexLock().lock();
+                        this.server.getStateMachine().getLastLogTermLock().lock();
+                        this.server.getStateMachine().getPrevLogIndexLock().lock();
+                        this.server.getStateMachine().getPrevLogTermLock().lock();
+                        this.server.getStateMachine().getCommitIndexLock().lock();
                         try {
                             if(command.getTicketAmount() <= this.server.getTicketPool()) {
                                 // Update the ticket pool
@@ -132,21 +147,58 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                             continue;
                                         }
 
-                                        // Submit blocking RPC call
-                                        returnValueRPC = remoteFollower.appendEntriesRPC(this.server.getServerId(),
-                                                this.server.getStateMachine().getCurrentTerm(),
+                                        callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteFollower,
+                                                this.server.getServerId(), this.server.getStateMachine().getCurrentTerm(),
                                                 this.server.getStateMachine().getPrevLogIndex(),
                                                 this.server.getStateMachine().getPrevLogTerm(),
                                                 this.server.getStateMachine().getLog(),
                                                 this.server.getStateMachine().getCommitIndex());
+                                        FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
+                                        futureTaskList.add(futureTask);
+                                        this.server.getStateMachine().getExecutorService().submit(futureTask);
                                     }
-
                                 }
 
-                                // Set the return value
-                                returnValueRPC.setValue(this.server.getTicketPool());
-                                returnValueRPC.setCondition(true);
-                                SysLog.logger.info("Successfully sold " + command.getTicketAmount() + " tickets");
+                                while(successfulAppends < ServerProperties.getMajorityVote() &&
+                                        remoteReturnValueRPC != null) {
+                                    try {
+                                        futureTaskIterator = futureTaskList.iterator();
+                                        while(futureTaskIterator.hasNext()) {
+                                            FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
+                                            if (futureTask.isDone()) {
+                                                remoteReturnValueRPC = futureTask.get();
+                                                // Received true, either from successful append or heartbeat
+                                                if(remoteReturnValueRPC.getCondition()) {
+                                                    if(remoteReturnValueRPC.getValue() ==
+                                                            this.server.getStateMachine().getCurrentTerm()) {
+                                                        successfulAppends++;
+                                                    }
+                                                }
+                                                // Received false, either this leader is further ahead or the remote is ahead
+                                                else {
+                                                    if(remoteReturnValueRPC.getValue() >
+                                                            this.server.getStateMachine().getCurrentTerm()) {
+                                                        returnValueRPC.setValue(-1);
+                                                        returnValueRPC.setCondition(false);
+                                                        SysLog.logger.info("Received a response from a server with a " +
+                                                                "higher term while trying to append a BUY command");
+                                                        remoteReturnValueRPC = null;
+                                                        break;
+                                                    }
+                                                }
+                                                futureTaskIterator.remove();
+                                            }
+                                        }
+                                    }
+                                    catch (InterruptedException | ExecutionException e) { }
+                                }
+
+                                if(successfulAppends >= ServerProperties.getMajorityVote()) {
+                                    // Set the return value
+                                    returnValueRPC.setValue(this.server.getTicketPool());
+                                    returnValueRPC.setCondition(true);
+                                    SysLog.logger.info("Successfully sold " + command.getTicketAmount() + " tickets");
+                                }
                             }
                             else
                             {
@@ -158,6 +210,12 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                         }
                         finally {
                             this.server.getTicketPoolLock().unlock();
+                            this.server.getStateMachine().getCurrentTermLock().unlock();
+                            this.server.getStateMachine().getLastLogIndexLock().unlock();
+                            this.server.getStateMachine().getLastLogTermLock().unlock();
+                            this.server.getStateMachine().getPrevLogIndexLock().unlock();
+                            this.server.getStateMachine().getPrevLogTermLock().unlock();
+                            this.server.getStateMachine().getCommitIndexLock().unlock();
                         }
                         break;
                     }
@@ -221,7 +279,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         this.server.getStateMachine().getCurrentStateLock().lock();
         this.server.getStateMachine().getCurrentTermLock().lock();
         this.server.getStateMachine().getVotedForLock().lock();
-        this.server.getStateMachine().getTimeoutlock().lock();
+        this.server.getStateMachine().getIsWaitingLock().lock();
         try {
             // Received a request from a candidate in a lower term, tell it to step down
             if(this.server.getStateMachine().getCurrentTerm() > candidateTerm) {
@@ -297,9 +355,19 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
 
             // Signal if this server is in the FOLLOWER state
-            if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
+            if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER &&
+                    this.server.getStateMachine().getIsWaiting()) {
+
                 SysLog.logger.info("Signalling timeout condition in state machine");
-                this.server.getStateMachine().getTimeoutCondition().signal();
+                this.server.getStateMachine().getTimeoutLock().lock();
+                try {
+                    this.server.getStateMachine().getTimeoutCondition().signal();
+                }
+                finally {
+                    SysLog.logger.info("before unlock");
+                    this.server.getStateMachine().getTimeoutLock().unlock();
+                    SysLog.logger.info("after unlock");
+                }
             }
 
             // Update this server to be a follower after a step-down occurred (avoid wrongful signaling)
@@ -308,10 +376,12 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
         }
         finally {
-            this.server.getStateMachine().getTimeoutlock().unlock();
+            SysLog.logger.info("before final unlock");
+            this.server.getStateMachine().getIsWaitingLock().unlock();
             this.server.getStateMachine().getVotedForLock().unlock();
             this.server.getStateMachine().getCurrentTermLock().unlock();
             this.server.getStateMachine().getCurrentStateLock().unlock();
+            SysLog.logger.info("after final unlock");
         }
 
         SysLog.logger.finest("Exiting method");
@@ -320,7 +390,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
     // Handle appending entries to the log/recognizing heartbeats
     public ReturnValueRPC appendEntriesRPC(int leaderId, int leaderTerm, int prevLogIndex, int prevLogTerm,
-                                           List<LogEntry> log, int lastCommitIndex) throws RemoteException {
+                                           List<LogEntry> log, int commitIndex) throws RemoteException {
         SysLog.logger.finest("Entering method");
 
         ReturnValueRPC ret = new ReturnValueRPC();
@@ -329,52 +399,127 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         this.server.getStateMachine().getCurrentStateLock().lock();
         this.server.getStateMachine().getCurrentTermLock().lock();
         this.server.getStateMachine().getVotedForLock().lock();
+        this.server.getStateMachine().getCommitIndexLock().lock();
         this.server.getStateMachine().getLeaderIdLock().lock();
-        this.server.getStateMachine().getTimeoutlock().lock();
+        this.server.getStateMachine().getIsWaitingLock().lock();
         try {
-            // The leader's term is less than this server's term, set values to tell leader to step-down
-            if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
-                this.server.getStateMachine().setLeaderId(-1);
-                ret.setCondition(false);
-                ret.setValue(this.server.getStateMachine().getCurrentTerm());
-            }
-            // The leader is ahead of this server's term, update this server's term and step down if a candidate/follower
-            else if(leaderTerm > this.server.getStateMachine().getCurrentTerm()){
-                this.server.getStateMachine().setLeaderId(leaderId);
-                ret.setCondition(false);
-                ret.setValue(this.server.getStateMachine().getCurrentTerm());
-                this.server.getStateMachine().setCurrentTerm(leaderTerm);
-                if(this.server.getStateMachine().getCurrentState() == StateType.CANDIDATE ||
-                        this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
-                    setToFollower = true;
-                }
-            }
-            // Terms match up, compare logs for enough consistency to append
-            else {
-                // Prev values match, append entry and advance state machine
-                if(this.server.getStateMachine().getLog().get(prevLogIndex).getTerm() == prevLogTerm) {
-                    LogEntry entry = log.get(prevLogIndex + 1);
-                    this.server.getStateMachine().getLog().add(entry);
-                    this.server.getStateMachine().setPrevLogIndex(prevLogIndex);
-                    this.server.getStateMachine().setPrevLogTerm(prevLogTerm);
-                    this.server.getStateMachine().setLastLogIndex(entry.getIndex());
-                    this.server.getStateMachine().setLastLogTerm(entry.getTerm());
-                }
-            }
-
-            if(entries == null) {
+            // Log is null, heartbeat from leader server (typical case)
+            if(log == null) {
                 this.server.getStateMachine().setVotedFor(-1);
+
+                // Check if a newer leader exists
+                if(leaderTerm > this.server.getStateMachine().getCurrentTerm()) {
+                    this.server.getStateMachine().setLeaderId(leaderId);
+                    this.server.getStateMachine().setCurrentTerm(leaderTerm);
+                    if(this.server.getStateMachine().getCurrentState() == StateType.CANDIDATE ||
+                            this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
+                        setToFollower = true;
+
+                        ret.setCondition(false);
+                        ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                    }
+                    else {
+                        ret.setValue(-1);
+                        ret.setCondition(true);
+                    }
+                }
+                // Update commit index if necessary
+                else {
+                    if(this.server.getStateMachine().getCommitIndex() < commitIndex) {
+                        // Update ticket pool if the command was a buy command
+                        this.server.getStateMachine().getLogLock().lock();
+                        this.server.getTicketPoolLock().lock();
+                        try {
+                            LogEntry entry = this.server.getStateMachine().getLog().get(commitIndex);
+                            if(entry == null) {
+                                SysLog.logger.warning("Detected commit index change for log entry not present in log");
+                            }
+                            else {
+                                this.server.getStateMachine().setCommitIndex(commitIndex);
+                                Command command = entry.getCommand();
+                                if(command.getCommandType() == CommandType.BUY) {
+                                    this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
+                                }
+                            }
+                        }
+                        finally {
+                            this.server.getStateMachine().getLogLock().unlock();
+                            this.server.getTicketPoolLock().unlock();
+                        }
+                    }
+
+                    ret.setValue(-1);
+                    ret.setCondition(true);
+                }
+
                 SysLog.logger.fine("Heartbeat signal received from leader (server " + leaderId + ")");
+            }
+            else {
+                this.server.getStateMachine().getLogLock().lock();
+                this.server.getStateMachine().getLastLogIndexLock().lock();
+                this.server.getStateMachine().getLastLogTermLock().lock();
+                this.server.getStateMachine().getPrevLogIndexLock().lock();
+                this.server.getStateMachine().getPrevLogTermLock().lock();
+                try {
+                    // The leader's term is less than this server's term, set values to tell leader to step-down
+                    if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
+                        this.server.getStateMachine().setLeaderId(-1);
+                        ret.setCondition(false);
+                        ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                    }
+                    // The leader is ahead of this server's term, update this server's term and step down if a candidate/leader
+                    else if(leaderTerm > this.server.getStateMachine().getCurrentTerm()){
+                        this.server.getStateMachine().setLeaderId(leaderId);
+                        ret.setCondition(false);
+                        ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                        this.server.getStateMachine().setCurrentTerm(leaderTerm);
+                        if(this.server.getStateMachine().getCurrentState() == StateType.CANDIDATE ||
+                                this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
+                            setToFollower = true;
+                        }
+                    }
+                    // Terms match up, compare logs for enough consistency to append
+                    else {
+                        // Prev values match, append entry and advance state machine
+                        if(this.server.getStateMachine().getLog().get(prevLogIndex).getTerm() == prevLogTerm) {
+                            LogEntry entry = log.get(prevLogIndex + 1);
+                            this.server.getStateMachine().getLog().add(entry);
+                            this.server.getStateMachine().setPrevLogIndex(prevLogIndex);
+                            this.server.getStateMachine().setPrevLogTerm(prevLogTerm);
+                            this.server.getStateMachine().setLastLogIndex(entry.getIndex());
+                            this.server.getStateMachine().setLastLogTerm(entry.getTerm());
+                            ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                            ret.setCondition(true);
+                        }
+                        // Unknown state
+                        else
+                        {
+                            System.out.println(this.server.getStateMachine().getLog().get(prevLogIndex).getTerm());
+                            System.out.println(prevLogTerm);
+                        }
+                    }
+                }
+                finally {
+                    this.server.getStateMachine().getLastLogIndexLock().unlock();
+                    this.server.getStateMachine().getLastLogTermLock().unlock();
+                    this.server.getStateMachine().getPrevLogIndexLock().unlock();
+                    this.server.getStateMachine().getPrevLogTermLock().unlock();
+                    this.server.getStateMachine().getLogLock().unlock();
+                }
             }
 
             // Signal if this server is in the FOLLOWER state
-            if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER) {
-                this.server.getStateMachine().getTimeoutCondition().signal();
-                if(entries == null) {
-                    SysLog.logger.fine("Signalling timeout condition in state machine");
+            if(this.server.getStateMachine().getCurrentState() == StateType.FOLLOWER &&
+                    this.server.getStateMachine().getIsWaiting()) {
+                SysLog.logger.info("Signalling timeout condition in state machine");
+                this.server.getStateMachine().getTimeoutLock().lock();
+                try {
+                    this.server.getStateMachine().getTimeoutCondition().signal();
                 }
-                else {
-                    SysLog.logger.info("Signalling timeout condition in state machine");
+                finally {
+                    SysLog.logger.info("before unlock");
+                    this.server.getStateMachine().getTimeoutLock().unlock();
+                    SysLog.logger.info("after unlock");
                 }
             }
 
@@ -384,11 +529,14 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
         }
         finally {
-            this.server.getStateMachine().getTimeoutlock().unlock();
-            this.server.getStateMachine().getLeaderIdLock().unlock();
-            this.server.getStateMachine().getVotedForLock().unlock();
+            SysLog.logger.info("before final unlock");
             this.server.getStateMachine().getCurrentTermLock().unlock();
             this.server.getStateMachine().getCurrentStateLock().unlock();
+            this.server.getStateMachine().getVotedForLock().unlock();
+            this.server.getStateMachine().getCommitIndexLock().unlock();
+            this.server.getStateMachine().getLeaderIdLock().unlock();
+            this.server.getStateMachine().getIsWaitingLock().unlock();
+            SysLog.logger.info("after final unlock");
         }
 
         SysLog.logger.finest("Exiting method");
@@ -427,14 +575,14 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 break;
             }
             case APPENDENTRIES: {
-                if(this.entries == null) {
+                if(this.log == null) {
                     SysLog.logger.fine("Sending APPENDENTRIES RPC to remote server");
                 }
                 else {
                     SysLog.logger.info("Sending APPENDENTRIES RPC to remote server");
                 }
                 ret = this.remoteServer.appendEntriesRPC(this.leaderId, this.leaderTerm, this.prevLogIndex, this.prevLogTerm,
-                        this.entries, this.lastCommitIndex);
+                        this.log, this.commitIndex);
                 break;
             }
             default: {

@@ -11,5 +11,5 @@ public interface RPCInterface extends Remote {
     public ReturnValueRPC submitCommandRPC(Command command)throws RemoteException;
     public ReturnValueRPC requestVoteRPC(int id, int term, int lastLogIndex, int lastLogTerm) throws RemoteException;
     public ReturnValueRPC appendEntriesRPC(int id, int term, int prevLogIndex, int prevLogTerm, List<LogEntry> log,
-                                           int lastCommitIndex) throws RemoteException;
+                                           int commitIndex) throws RemoteException;
 }

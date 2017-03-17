@@ -18,9 +18,10 @@ public class SysLogFormatter extends Formatter{
 
     public String format(LogRecord record) {
         String sourceClassName = "main.java.com.carsonkk.raftosk.";
+        int capacity = 4096;
 
-        StringBuilder stringBuilder = new StringBuilder(2048);
-        stringBuilder.append("<").append(String.format("%02d", record.getThreadID())).append("> ");
+        StringBuilder stringBuilder = new StringBuilder(capacity);
+        stringBuilder.append("<").append(String.format("%3d", record.getThreadID())).append("> ");
         stringBuilder.append("(").append(dateFormat.format(new Date(record.getMillis()))).append(") ");
         stringBuilder.append("[").append(record.getLevel()).append("] ");
         stringBuilder.append(record.getSourceClassName().substring(sourceClassName.length())).append(".");

@@ -40,7 +40,6 @@ public class Client {
         int ret = 0;
         boolean commandResolved = false;
         Command command = new Command();
-        command.
 
         // Initial heading
         System.out.println(" /''''''''''''''''''''''''''''\\");

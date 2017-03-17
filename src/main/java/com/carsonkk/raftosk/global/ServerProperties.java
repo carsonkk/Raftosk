@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
+import static java.lang.Math.floor;
+
 // Handles reading in and storing configuration information from the .properties file
 public final class ServerProperties {
     //region Private Members
@@ -87,6 +89,10 @@ public final class ServerProperties {
                 }
             }
         }
+    }
+
+    public static int getMajorityVote() {
+        return ((int)floor(maxServerCount / 2.0)) + 1;
     }
 
     //endregion
