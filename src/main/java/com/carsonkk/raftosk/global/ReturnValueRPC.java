@@ -11,12 +11,15 @@ public class ReturnValueRPC implements Serializable {
     //region Private Members
 
     // Primary return data
+    private int serverId;
     private int value;
     private boolean condition;
 
     //Secondary return data (may not always be set)
     private int ticketPool;
     private List<LogEntry> log;
+    private List<Integer> nextIndexes;
+    private int nextIndex;
     private int commitIndex;
 
     //endregion
@@ -24,25 +27,29 @@ public class ReturnValueRPC implements Serializable {
     //region Constructors
 
     public ReturnValueRPC() throws RemoteException {
+        this.serverId = 0;
         this.value = 0;
         this.condition = false;
         this.ticketPool = -1;
         this.log = null;
+        this.nextIndexes = null;
+        this.nextIndex = -1;
         this.commitIndex = -1;
 
         SysLog.logger.finer("Created a new return value RPC");
     }
 
-    public ReturnValueRPC(int value, boolean condition) throws RemoteException {
-        this.value = value;
-        this.condition = condition;
-
-        SysLog.logger.finer("Created a new return value RPC with value " + this.value + " and condition " + this.condition);
-    }
-
     //endregion
 
     //region Getters/Setters
+
+    public int getServerId() {
+        return this.serverId;
+    }
+
+    public void setServerId(int serverId) {
+        this.serverId = serverId;
+    }
 
     public int getValue() {
         return this.value;
@@ -74,6 +81,18 @@ public class ReturnValueRPC implements Serializable {
 
     public void setLog(List<LogEntry> log) {
         this.log = log;
+    }
+
+    public List<Integer> getNextIndexes() {
+        return this.nextIndexes;
+    }
+
+    public int getNextIndex() {
+        return this.nextIndex;
+    }
+
+    public void setNextIndex(int nextIndex) {
+        this.nextIndex = nextIndex;
     }
 
     public int getCommitIndex() {

@@ -8,8 +8,9 @@ import java.util.List;
 
 // Defines data serialization interface used within RMI for client-to-server and server-to-server communication
 public interface RPCInterface extends Remote {
-    public ReturnValueRPC submitCommandRPC(Command command)throws RemoteException;
+    public ReturnValueRPC getStateRPC()throws RemoteException;
+    public ReturnValueRPC submitCommandRPC(Command command) throws RemoteException;
     public ReturnValueRPC requestVoteRPC(int id, int term, int lastLogIndex, int lastLogTerm) throws RemoteException;
     public ReturnValueRPC appendEntriesRPC(int id, int term, int prevLogIndex, int prevLogTerm, List<LogEntry> log,
-                                           int commitIndex) throws RemoteException;
+                                           int commitIndex, List<Integer> nextIndexes) throws RemoteException;
 }

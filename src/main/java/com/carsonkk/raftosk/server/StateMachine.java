@@ -18,6 +18,7 @@ public class StateMachine {
 
     // State machine locks
     private final ReentrantLock logLock = new ReentrantLock();
+    private final ReentrantLock nextIndexesLock = new ReentrantLock();
     private final ReentrantLock currentStateLock = new ReentrantLock();
     private final ReentrantLock currentTermLock = new ReentrantLock();
     private final ReentrantLock lastLogIndexLock = new ReentrantLock();
@@ -33,7 +34,6 @@ public class StateMachine {
     private final Condition timeoutCondition = timeoutLock.newCondition();
 
     private Server server;
-    private ConsensusModule consensusModule;
     private List<LogEntry> log;
     private List<Integer> nextIndexes;
     private StateType currentState;
@@ -54,7 +54,6 @@ public class StateMachine {
 
     public StateMachine() {
         this.server = null;
-        this.consensusModule = new ConsensusModule();
         this.log = new ArrayList<>();
         this.nextIndexes = new ArrayList<>();
         this.currentState = StateType.NULL;
@@ -75,7 +74,7 @@ public class StateMachine {
         log.add(new LogEntry(this.lastLogIndex, this.lastLogTerm, dummyCommand));
 
         // Setup nextIndexes list, use for appending entries
-        for(int i = 0; i < ServerProperties.getMaxServerCount(); i++) {
+        for(int i = 0; i < SysFiles.getMaxServerCount(); i++) {
             nextIndexes.add(this.lastLogIndex + 1);
         }
 
@@ -93,6 +92,10 @@ public class StateMachine {
 
     public ReentrantLock getLogLock() {
         return this.logLock;
+    }
+
+    public ReentrantLock getNextIndexesLock() {
+        return this.nextIndexesLock;
     }
 
     public ReentrantLock getCurrentStateLock() {
@@ -151,8 +154,8 @@ public class StateMachine {
         return this.log;
     }
 
-    public void setLog(List<LogEntry> log) {
-        this.log = log;
+    public List<Integer> getNextIndexes() {
+        return this.nextIndexes;
     }
 
     public StateType getCurrentState() {
@@ -255,6 +258,9 @@ public class StateMachine {
         boolean logActivity;
 
         switch(this.currentState) {
+            case OFFLINE: {
+                break;
+            }
             case FOLLOWER: {
                 SysLog.logger.fine("Began execution in FOLLOWER state");
 
@@ -324,12 +330,12 @@ public class StateMachine {
                     futureTaskList = new ArrayList<>();
 
                     // Send RequestVoteRPCs to all possible servers
-                    for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
+                    for (int i = 1; i < SysFiles.getMaxServerCount() + 1; i++) {
                         // Don't send vote for this server
                         if (i != this.server.getServerId()) {
                             // Connect to the server
-                            remoteServer = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                                    ServerProperties.getBaseServerPort() + i, true);
+                            remoteServer = ConnectToServer.connect(SysFiles.getBaseServerAddress(),
+                                    SysFiles.getBaseServerPort() + i, true);
                             if (remoteServer == null) {
                                 SysLog.logger.info("Server " + i +
                                         " is currently offline, couldn't send vote request RPC");
@@ -354,8 +360,8 @@ public class StateMachine {
                 }
 
                 // Set a maximum election timeout and attempt to get at least a majority of votes
-                electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getMaxElectionTimeout());
-                while (electionTimeout > 0 && votesReceived < ServerProperties.getMajorityVote()) {
+                electionTimeout = TimeUnit.MILLISECONDS.toNanos(SysFiles.getMaxElectionTimeout());
+                while (electionTimeout > 0 && votesReceived < SysFiles.getMajorityVote()) {
                     // Start keeping track of time
                     startTime = System.nanoTime();
                     try {
@@ -424,7 +430,7 @@ public class StateMachine {
                 // Only check if still a candidate
                 this.currentStateLock.lock();
                 try {
-                    if (this.currentState == StateType.CANDIDATE && votesReceived >= ServerProperties.getMajorityVote()) {
+                    if (this.currentState == StateType.CANDIDATE && votesReceived >= SysFiles.getMajorityVote()) {
                         SysLog.logger.info("Switching state from CANDIDATE to LEADER");
                         this.currentState = StateType.LEADER;
                         this.leaderId = this.server.getServerId();
@@ -445,6 +451,7 @@ public class StateMachine {
                     this.currentStateLock.lock();
                     this.currentTermLock.lock();
                     this.votedForLock.lock();
+                    this.nextIndexesLock.lock();
                     try {
                         // Make sure the server is still a leader
                         if (this.currentState != StateType.LEADER) {
@@ -459,7 +466,8 @@ public class StateMachine {
                         // Determine whether to log activity based on rpc type
                         if (SysLog.level > 4) {
                             logActivity = true;
-                        } else {
+                        }
+                        else {
                             for (int i = 0; i < this.nextIndexes.size(); i++) {
                                 if (this.lastLogIndex >= this.nextIndexes.get(i)) {
                                     logActivity = true;
@@ -469,12 +477,12 @@ public class StateMachine {
                         }
 
                         // Send AppendEntriesRPCs to all possible servers
-                        for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
+                        for (int i = 1; i < SysFiles.getMaxServerCount() + 1; i++) {
                             // Don't send vote for this server
                             if (i != this.server.getServerId()) {
                                 // Connect to the server
-                                remoteServer = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                                        ServerProperties.getBaseServerPort() + i, logActivity);
+                                remoteServer = ConnectToServer.connect(SysFiles.getBaseServerAddress(),
+                                        SysFiles.getBaseServerPort() + i, logActivity);
                                 if (remoteServer == null) {
                                     if (logActivity) {
                                         SysLog.logger.info("Server " + i +
@@ -484,9 +492,19 @@ public class StateMachine {
                                 }
 
                                 // Submit callable and add future to list
-                                callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
-                                        this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
-                                        null, this.commitIndex);
+                                /*if(this.nextIndexes.get(i - 1) <= this.lastLogIndex) {
+                                    // Update old server with heartbeat containing log entries
+                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
+                                            this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
+                                            this.log, this.commitIndex, this.nextIndexes);
+                                }*/
+                                else {
+                                    // Send empty heartbeat
+                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
+                                            this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
+                                            null, this.commitIndex, this.nextIndexes);
+                                }
+
                                 FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
                                 futureTaskList.add(futureTask);
                                 this.executorService.submit(futureTask);
@@ -499,10 +517,11 @@ public class StateMachine {
                         this.currentStateLock.unlock();
                         this.currentTermLock.unlock();
                         this.votedForLock.unlock();
+                        this.nextIndexesLock.unlock();
                     }
 
                     // Set a maximum election timeout and attempt to get at least a majority of votes
-                    electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getHeartbeatFrequency());
+                    electionTimeout = TimeUnit.MILLISECONDS.toNanos(SysFiles.getHeartbeatFrequency());
                     while (electionTimeout > 0) {
                         // Start keeping track of time
                         startTime = System.nanoTime();
@@ -519,14 +538,32 @@ public class StateMachine {
                                         }
 
                                         this.currentTermLock.lock();
+                                        this.nextIndexesLock.lock();
                                         try {
-                                            if (ret.getCondition() == false || ret.getValue() > this.currentTerm) {
+                                            if (!ret.getCondition() || ret.getValue() > this.currentTerm) {
                                                 break;
+                                            }
+                                            else if(ret.getCondition() && ret.getValue() == -1 && ret.getServerId() != 0) {
+                                                if(ret.getNextIndex() > this.nextIndexes.get(ret.getServerId() - 1)) {
+                                                    this.nextIndexes.set(ret.getServerId() - 1, ret.getNextIndex());
+                                                }
+                                                if(ret.getNextIndexes() != null) {
+                                                    for(int i = 0; i < this.nextIndexes.size(); i++) {
+                                                        if(ret.getNextIndexes().get(i) > this.nextIndexes.get(i)) {
+                                                            this.nextIndexes.set(i, ret.getNextIndexes().get(i));
+                                                        }
+                                                    }
+                                                }
+
+                                                /*if(ret.getCommitIndex() != -1) {
+                                                    this.nextIndexes.set(ret.getServerId() - 1, ret.getCommitIndex());
+                                                }*/
                                             }
                                             ret = null;
                                             futureTaskIterator.remove();
                                         } finally {
                                             this.currentTermLock.unlock();
+                                            this.nextIndexesLock.unlock();
                                         }
                                     }
                                 }
@@ -551,8 +588,8 @@ public class StateMachine {
                                     this.votedForLock.unlock();
                                 }
                             }
-                        } catch (InterruptedException | ExecutionException e) {
                         }
+                        catch (InterruptedException | ExecutionException e) {}
 
                         // Finish keeping track of time, update electionTimeout
                         endTime = System.nanoTime();
@@ -581,8 +618,8 @@ public class StateMachine {
     }
 
     public static int getRandomElectionTimeout() {
-        return ThreadLocalRandom.current().nextInt(ServerProperties.getMinElectionTimeout(),
-                ServerProperties.getMaxElectionTimeout() + 1);
+        return ThreadLocalRandom.current().nextInt(SysFiles.getMinElectionTimeout(),
+                SysFiles.getMaxElectionTimeout() + 1);
     }
 
     //endregion

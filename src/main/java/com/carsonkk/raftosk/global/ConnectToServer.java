@@ -24,14 +24,15 @@ public final class ConnectToServer {
         try {
             registry = LocateRegistry.getRegistry(address, port);
             server = (RPCInterface)registry.lookup("RPCInterface");
+            ReturnValueRPC returnValueRPC = server.getStateRPC();
+            if(returnValueRPC.getValue() == 0) {
+                server = null;
+            }
             if(logActivity) {
-                SysLog.logger.info("Connected to the server " + (port - ServerProperties.getBaseServerPort()));
+                SysLog.logger.info("Connected to the server " + (port - SysFiles.getBaseServerPort()));
             }
         }
-        catch (RemoteException | NotBoundException e) {
-            //SysLog.logger.warning("Could not connect to the remote server: " + e.getMessage());
-            //e.printStackTrace();
-        }
+        catch (RemoteException | NotBoundException e) {}
 
         SysLog.logger.finest("Exiting method");
         return server;

@@ -37,6 +37,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     private int prevLogTerm;
     private List<LogEntry> log;
     private int commitIndex;
+    private List<Integer> nextIndexes;
 
     //endregion
 
@@ -54,12 +55,6 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         SysLog.logger.finer("Created new RPC handler with RPC " + this.rpc);
     }
 
-    public HandleRPC(Server server, RPCType rpc, RPCInterface remoteServer, Command command) throws RemoteException {
-        this(server, rpc, remoteServer);
-        this.command = command;
-        SysLog.logger.finer("Created new RPC handler with command " + this.command);
-    }
-
     public HandleRPC(Server server, RPCType rpc, RPCInterface remoteServer, int candidateId, int candidateTerm,
                      int lastLogIndex, int lastLogTerm) throws RemoteException {
         this(server, rpc, remoteServer);
@@ -72,7 +67,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     }
 
     public HandleRPC(Server server, RPCType rpc, RPCInterface remoteServer, int leaderId, int leaderTerm, int prevLogIndex,
-                     int prevLogTerm, List<LogEntry> log, int commitIndex) throws RemoteException {
+                     int prevLogTerm, List<LogEntry> log, int commitIndex, List<Integer> nextIndexes) throws RemoteException {
         this(server, rpc, remoteServer);
         this.leaderId = leaderId;
         this.leaderTerm = leaderTerm;
@@ -80,6 +75,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         this.prevLogTerm = prevLogTerm;
         this.log = log;
         this.commitIndex = commitIndex;
+        this.nextIndexes = nextIndexes;
         SysLog.logger.finer("Created new RPC handler with leader ID " + this.leaderId + ", leader term " +
                 this.leaderTerm + ", prev log index " + this.prevLogIndex + ", prev log term " + this.prevLogTerm +
                 ", log " + this.log + ", and commit index " + this.commitIndex);
@@ -88,6 +84,41 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     //endregion
 
     //region Public Methods
+
+    // Get the current state of the server
+    public ReturnValueRPC getStateRPC() throws RemoteException {
+        SysLog.logger.finest("Entering method");
+        ReturnValueRPC returnValueRPC = new ReturnValueRPC();
+
+        this.server.getStateMachine().getCurrentStateLock().lock();
+        try {
+            switch (this.server.getStateMachine().getCurrentState()) {
+                case OFFLINE: {
+                    returnValueRPC.setValue(0);
+                    break;
+                }
+                case FOLLOWER: {
+                    returnValueRPC.setValue(1);
+                    break;
+                }
+                case CANDIDATE: {
+                    returnValueRPC.setValue(2);
+                    break;
+                }
+                case LEADER: {
+                    returnValueRPC.setValue(3);
+                    break;
+                }
+            }
+        }
+        finally {
+            this.server.getStateMachine().getCurrentStateLock().unlock();
+        }
+
+        SysLog.logger.finest("Exiting method");
+        return returnValueRPC;
+    }
+
 
     // Handle commands sent to the server by a client
     public ReturnValueRPC submitCommandRPC(Command command) throws RemoteException {
@@ -105,7 +136,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 List<FutureTask<ReturnValueRPC>> futureTaskList = new ArrayList<>();
                 Iterator<FutureTask<ReturnValueRPC>> futureTaskIterator;
                 Callable<ReturnValueRPC> callable;
-                RPCInterface remoteFollower;
+                RPCInterface remoteServerToUpdate;
                 ReturnValueRPC remoteReturnValueRPC = new ReturnValueRPC();
                 RPCInterface remoteLeader;
 
@@ -123,6 +154,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                     // Update the ticket pool
                                     this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
                                 } else {
+                                    returnValueRPC.setServerId(this.server.getServerId());
                                     returnValueRPC.setValue(this.server.getTicketPool());
                                     returnValueRPC.setCondition(false);
                                     exitWithoutUpdate = true;
@@ -151,6 +183,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     // If successful, update local and remote logs
                     if(!exitWithoutUpdate) {
                         this.server.getTicketPoolLock().lock();
+                        this.server.getStateMachine().getNextIndexesLock().lock();
                         this.server.getStateMachine().getCurrentTermLock().lock();
                         this.server.getStateMachine().getLastLogIndexLock().lock();
                         this.server.getStateMachine().getLastLogTermLock().lock();
@@ -166,26 +199,29 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             this.server.getStateMachine().setPrevLogTerm(this.server.getStateMachine().getLastLogTerm());
                             this.server.getStateMachine().setLastLogIndex(index);
                             this.server.getStateMachine().setLastLogTerm(this.server.getStateMachine().getCurrentTerm());
+                            this.server.getStateMachine().getNextIndexes().set(this.server.getServerId() - 1, index + 1);
+                            successfulAppends++;
 
                             // Send out AppendEntriesRPC with new entry
-                            for (int i = 1; i < ServerProperties.getMaxServerCount() + 1; i++) {
+                            for (int i = 1; i < SysFiles.getMaxServerCount() + 1; i++) {
                                 // Don't send vote for this server
                                 if (i != this.server.getServerId()) {
                                     // Connect to the server
-                                    remoteFollower = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                                            ServerProperties.getBaseServerPort() + i, true);
-                                    if (remoteFollower == null) {
+                                    remoteServerToUpdate = ConnectToServer.connect(SysFiles.getBaseServerAddress(),
+                                            SysFiles.getBaseServerPort() + i, true);
+                                    if (remoteServerToUpdate == null) {
                                         SysLog.logger.info("Server " + i +
                                                 " is currently offline, couldn't send append entry RPC");
                                         continue;
                                     }
 
-                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteFollower,
+                                    callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServerToUpdate,
                                             this.server.getServerId(), this.server.getStateMachine().getCurrentTerm(),
                                             this.server.getStateMachine().getPrevLogIndex(),
                                             this.server.getStateMachine().getPrevLogTerm(),
                                             this.server.getStateMachine().getLog(),
-                                            this.server.getStateMachine().getCommitIndex());
+                                            this.server.getStateMachine().getCommitIndex(),
+                                            this.server.getStateMachine().getNextIndexes());
                                     FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
                                     futureTaskList.add(futureTask);
                                     this.server.getStateMachine().getExecutorService().submit(futureTask);
@@ -193,7 +229,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             }
 
                             // Get a majority of append responses
-                            while (successfulAppends < ServerProperties.getMajorityVote() - 1 &&
+                            while (successfulAppends < SysFiles.getMajorityVote() &&
                                     remoteReturnValueRPC != null) {
                                 try {
                                     futureTaskIterator = futureTaskList.iterator();
@@ -206,6 +242,9 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                                 if (remoteReturnValueRPC.getValue() ==
                                                         this.server.getStateMachine().getCurrentTerm()) {
                                                     successfulAppends++;
+                                                    this.server.getStateMachine().getNextIndexes().set(
+                                                            remoteReturnValueRPC.getServerId() - 1,
+                                                            remoteReturnValueRPC.getNextIndex());
                                                 } else {
                                                     System.out.println("hi");
                                                 }
@@ -221,8 +260,12 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                                             command.getCommandType() + " command");
                                                     remoteReturnValueRPC = null;
                                                     break;
-                                                } else {
-                                                    System.out.println("yo");
+                                                }
+                                                else {
+                                                    SysLog.logger.info("Received a response from a server with a " +
+                                                            "lower term while trying to append a " +
+                                                            command.getCommandType() + " command, lowering next index and " +
+                                                            "retrying");
                                                 }
                                             }
                                             futureTaskIterator.remove();
@@ -234,7 +277,8 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             }
 
                             // Succeeded in obtaining majority appends
-                            if (successfulAppends >= ServerProperties.getMajorityVote() - 1) {
+                            if (successfulAppends >= SysFiles.getMajorityVote()) {
+                                SysLog.logger.info("Successfully executed the " + command.getCommandType() + " command");
                                 // Set the return value
                                 this.server.getStateMachine().setCommitIndex(index);
                                 returnValueRPC.setValue(this.server.getTicketPool());
@@ -243,13 +287,47 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                     returnValueRPC.setTicketPool(this.server.getTicketPool());
                                     returnValueRPC.setLog(this.server.getStateMachine().getLog());
                                     returnValueRPC.setCommitIndex(this.server.getStateMachine().getCommitIndex());
+
+                                    // Let leader know
+                                    if(this.server.getStateMachine().getCurrentState() != StateType.LEADER) {
+                                        remoteServerToUpdate = ConnectToServer.connect(SysFiles.getBaseServerAddress(),
+                                                SysFiles.getBaseServerPort() + this.server.getStateMachine().getLeaderId(),
+                                                true);
+                                        if (remoteServerToUpdate == null) {
+                                            SysLog.logger.info("Leader server is currently offline, " +
+                                                    "couldn't send append entry RPC");
+                                        }
+                                        else {
+                                            callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServerToUpdate,
+                                                    this.server.getServerId(), this.server.getStateMachine().getCurrentTerm(),
+                                                    this.server.getStateMachine().getPrevLogIndex(),
+                                                    this.server.getStateMachine().getPrevLogTerm(),
+                                                    null,
+                                                    this.server.getStateMachine().getCommitIndex(),
+                                                    this.server.getStateMachine().getNextIndexes());
+                                            FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
+                                            this.server.getStateMachine().getExecutorService().submit(futureTask);
+                                            while(!futureTask.isDone()) {}
+                                            try {
+                                                remoteReturnValueRPC = futureTask.get();
+                                                if(remoteReturnValueRPC.getServerId() ==
+                                                        this.server.getStateMachine().getLeaderId() &&
+                                                        remoteReturnValueRPC.getCondition()) {
+                                                    SysLog.logger.info("Updated leader next indexes");
+                                                }
+                                            }
+                                            catch (InterruptedException | ExecutionException e) {
+                                                SysLog.logger.info("Exception occurred: " + e.getMessage());
+                                            }
+                                        }
+                                    }
                                 }
-                                SysLog.logger.info("Successfully executed the " + command.getCommandType() + " command");
                             }
 
                         }
                         finally {
                             this.server.getTicketPoolLock().unlock();
+                            this.server.getStateMachine().getNextIndexesLock().unlock();
                             this.server.getStateMachine().getCurrentTermLock().unlock();
                             this.server.getStateMachine().getLastLogIndexLock().unlock();
                             this.server.getStateMachine().getLastLogTermLock().unlock();
@@ -261,8 +339,8 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 } else {
                     // If leader exists, forward and block, otherwise return a "retry" ReturnValueRPC
                     if (this.server.getStateMachine().getLeaderId() != -1) {
-                        remoteLeader = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                                ServerProperties.getBaseServerPort() + this.server.getStateMachine().getLeaderId(), true);
+                        remoteLeader = ConnectToServer.connect(SysFiles.getBaseServerAddress(),
+                                SysFiles.getBaseServerPort() + this.server.getStateMachine().getLeaderId(), true);
                         if (remoteLeader != null) {
                             SysLog.logger.info("Forwarding command from " + this.server.getStateMachine().getCurrentState() +
                                     " Server " + this.server.getServerId() + " to LEADER Server " +
@@ -416,7 +494,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
 
     // Handle appending entries to the log/recognizing heartbeats
     public ReturnValueRPC appendEntriesRPC(int leaderId, int leaderTerm, int prevLogIndex, int prevLogTerm,
-                                           List<LogEntry> log, int commitIndex) throws RemoteException {
+                                           List<LogEntry> log, int commitIndex, List<Integer> nextIndexes) throws RemoteException {
         SysLog.logger.finest("Entering method");
 
         ReturnValueRPC ret = new ReturnValueRPC();
@@ -428,10 +506,19 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         this.server.getStateMachine().getCommitIndexLock().lock();
         this.server.getStateMachine().getLeaderIdLock().lock();
         this.server.getStateMachine().getIsWaitingLock().lock();
+        this.server.getStateMachine().getNextIndexesLock().lock();
         try {
             // Log is null, heartbeat from leader server (typical case)
             if(log == null) {
                 this.server.getStateMachine().setVotedFor(-1);
+                for(int i = 0; i < this.server.getStateMachine().getNextIndexes().size(); i++) {
+                    if(this.server.getStateMachine().getNextIndexes().get(i) < nextIndexes.get(i)) {
+                        this.server.getStateMachine().getNextIndexes().set(i, nextIndexes.get(i));
+                    }
+                    else if(this.server.getStateMachine().getNextIndexes().get(i) > nextIndexes.get(i)) {
+                        ret.getNextIndexes().set(i,this.server.getStateMachine().getNextIndexes().get(i));
+                    }
+                }
 
                 // Check if a newer leader exists
                 if(leaderTerm > this.server.getStateMachine().getCurrentTerm()) {
@@ -449,6 +536,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     else {
                         ret.setValue(-1);
                         ret.setCondition(true);
+                        ret.setCommitIndex(this.server.getStateMachine().getCommitIndex());
                     }
                 }
                 // Update commit index if necessary
@@ -477,6 +565,14 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                         }
                     }
 
+                    this.server.getStateMachine().getLastLogIndexLock().lock();
+                    try {
+                        ret.setServerId(this.server.getServerId());
+                        ret.setNextIndex(this.server.getStateMachine().getLastLogIndex() + 1);
+                    }
+                    finally {
+                        this.server.getStateMachine().getLastLogIndexLock().unlock();
+                    }
                     ret.setValue(-1);
                     ret.setCondition(true);
                 }
@@ -500,15 +596,32 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     }
                     // The leader is ahead of this server's term, update this server's term and step down if a candidate/leader
                     else if(leaderTerm > this.server.getStateMachine().getCurrentTerm()){
-                        SysLog.logger.info("Received append entry request from a leader with a higher term, " +
-                                "stepping down if necessary");
-                        this.server.getStateMachine().setLeaderId(leaderId);
-                        ret.setCondition(false);
-                        ret.setValue(this.server.getStateMachine().getCurrentTerm());
-                        this.server.getStateMachine().setCurrentTerm(leaderTerm);
-                        if(this.server.getStateMachine().getCurrentState() == StateType.CANDIDATE ||
-                                this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
-                            setToFollower = true;
+                        if(log == null) {
+                            SysLog.logger.info("Received append entry request from a leader with a higher term, " +
+                                    "stepping down if necessary");
+                            this.server.getStateMachine().setLeaderId(leaderId);
+                            ret.setCondition(false);
+                            ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                            this.server.getStateMachine().setCurrentTerm(leaderTerm);
+                            if(this.server.getStateMachine().getCurrentState() == StateType.CANDIDATE ||
+                                    this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
+                                setToFollower = true;
+                            }
+                        }
+                        else {
+                            SysLog.logger.info("Received append entry request from a leader with a higher term, syncing");
+                            this.server.getStateMachine().setLeaderId(leaderId);
+                            this.server.getStateMachine().setCurrentTerm(leaderTerm);
+
+                            // Incrementally update the log
+                            for(int i = this.server.getStateMachine().getLastLogIndex(); i < log.size(); i++) {
+                                this.server.getStateMachine().getLog().add(log.get(i));
+                                SysLog.logger.info("Appended new entry to old server at index " + i + " for term " +
+                                        log.get(i).getTerm());
+                            }
+
+                            ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                            ret.setCondition(true);
                         }
                     }
                     // Terms match up, compare logs for enough consistency to append
@@ -522,6 +635,11 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             this.server.getStateMachine().setPrevLogTerm(prevLogTerm);
                             this.server.getStateMachine().setLastLogIndex(entry.getIndex());
                             this.server.getStateMachine().setLastLogTerm(entry.getTerm());
+                            this.server.getStateMachine().getNextIndexes().set(leaderId - 1, entry.getIndex() + 1);
+                            this.server.getStateMachine().getNextIndexes().set(this.server.getServerId() - 1,
+                                    this.server.getStateMachine().getLastLogIndex() + 1);
+                            ret.setServerId(this.server.getServerId());
+                            ret.setNextIndex(this.server.getStateMachine().getLastLogIndex() + 1);
                             ret.setValue(this.server.getStateMachine().getCurrentTerm());
                             ret.setCondition(true);
                         }
@@ -534,11 +652,11 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     }
                 }
                 finally {
+                    this.server.getStateMachine().getLogLock().unlock();
                     this.server.getStateMachine().getLastLogIndexLock().unlock();
                     this.server.getStateMachine().getLastLogTermLock().unlock();
                     this.server.getStateMachine().getPrevLogIndexLock().unlock();
                     this.server.getStateMachine().getPrevLogTermLock().unlock();
-                    this.server.getStateMachine().getLogLock().unlock();
                 }
             }
 
@@ -561,12 +679,13 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
         }
         finally {
-            this.server.getStateMachine().getCurrentTermLock().unlock();
             this.server.getStateMachine().getCurrentStateLock().unlock();
+            this.server.getStateMachine().getCurrentTermLock().unlock();
             this.server.getStateMachine().getVotedForLock().unlock();
             this.server.getStateMachine().getCommitIndexLock().unlock();
             this.server.getStateMachine().getLeaderIdLock().unlock();
             this.server.getStateMachine().getIsWaitingLock().unlock();
+            this.server.getStateMachine().getNextIndexesLock().unlock();
         }
 
         SysLog.logger.finest("Exiting method");
@@ -577,7 +696,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
     public boolean setupConnection() throws RemoteException {
         SysLog.logger.finest("Entering method");
 
-        Registry reg = LocateRegistry.createRegistry(ServerProperties.getBaseServerPort() + this.server.getServerId());
+        Registry reg = LocateRegistry.createRegistry(SysFiles.getBaseServerPort() + this.server.getServerId());
         reg.rebind("RPCInterface", this);
         SysLog.logger.info("Server setup complete, ready for connections");
 
@@ -612,7 +731,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     SysLog.logger.info("Sending APPENDENTRIES RPC to remote server");
                 }
                 ret = this.remoteServer.appendEntriesRPC(this.leaderId, this.leaderTerm, this.prevLogIndex, this.prevLogTerm,
-                        this.log, this.commitIndex);
+                        this.log, this.commitIndex, this.nextIndexes);
                 break;
             }
             default: {

@@ -1,16 +1,15 @@
 package main.java.com.carsonkk.raftosk.global;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.Properties;
 
 import static java.lang.Math.floor;
 
 // Handles reading in and storing configuration information from the .properties file
-public final class ServerProperties {
+public final class SysFiles {
     //region Private Members
 
+    private static String propertiesFilename;
     private static int initialTicketPool;
     private static int maxServerCount;
     private static int minElectionTimeout;
@@ -65,7 +64,7 @@ public final class ServerProperties {
             inputStream = new FileInputStream(filename);
             properties.load(inputStream);
 
-            // Set property values
+            // Get property values
             initialTicketPool = Integer.parseInt(properties.getProperty("initialTicketPool"));
             maxServerCount = Integer.parseInt(properties.getProperty("maxServerCount"));
             minElectionTimeout = Integer.parseInt(properties.getProperty("minElectionTimeout"));
@@ -76,16 +75,49 @@ public final class ServerProperties {
         }
         catch (IOException e) {
             System.out.println("An error occurred while opening/reading in the properties file values: " + e.getMessage());
-            //e.printStackTrace();
         }
         finally {
             if (inputStream != null) {
                 try {
                     inputStream.close();
+                    propertiesFilename = filename;
                 }
                 catch (IOException e) {
                     System.out.println("An error occurred while closing the properties file stream: " + e.getMessage());
-                    //e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    // Write out the current properties values to the file
+    public static void writePropertiesFile() {
+        Properties properties = new Properties();
+        OutputStream outputStream = null;
+
+        try {
+            // Set property values
+            properties.setProperty("initialTicketPool", Integer.toString(initialTicketPool));
+            properties.setProperty("maxServerCount", Integer.toString(maxServerCount));
+            properties.setProperty("minElectionTimeout", Integer.toString(minElectionTimeout));
+            properties.setProperty("maxElectionTimeout", Integer.toString(maxElectionTimeout));
+            properties.setProperty("heartbeatFrequency", Integer.toString(heartbeatFrequency));
+            properties.setProperty("baseServerPort", Integer.toString(baseServerPort));
+            properties.setProperty("baseServerAddress", baseServerAddress);
+
+            // Save properties stream
+            outputStream = new FileOutputStream(propertiesFilename);
+            properties.store(outputStream, null);
+        }
+        catch (IOException e) {
+            System.out.println("An error occurred while opening/reading in the properties file values: " + e.getMessage());
+        }
+        finally {
+            if (outputStream != null) {
+                try {
+                    outputStream.close();
+                }
+                catch (IOException e) {
+                    System.out.println("An error occurred while closing the properties file stream: " + e.getMessage());
                 }
             }
         }

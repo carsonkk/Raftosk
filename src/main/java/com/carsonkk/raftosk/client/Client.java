@@ -51,7 +51,7 @@ public class Client {
 
         // Read in which server to connect to
         System.out.println("Please enter the id of the server you would like to connect to");
-        System.out.println("(Select from 1 to " + ServerProperties.getMaxServerCount() +
+        System.out.println("(Select from 1 to " + SysFiles.getMaxServerCount() +
                 " for potentially available server IDs)");
         System.out.println();
         try {
@@ -66,7 +66,7 @@ public class Client {
         }
 
         // Outside valid server ID range
-        if(serverId < 1 || serverId > ServerProperties.getMaxServerCount()) {
+        if(serverId < 1 || serverId > SysFiles.getMaxServerCount()) {
             System.out.println("Invalid server ID selected, please try again");
             SysLog.logger.finest("Exiting method");
             return 1;
@@ -74,7 +74,7 @@ public class Client {
 
         // Connect to the server
         while(server == null) {
-            server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(), ServerProperties.getBaseServerPort() +
+            server = ConnectToServer.connect(SysFiles.getBaseServerAddress(), SysFiles.getBaseServerPort() +
                     serverId, true);
             if(server == null) {
                 serverId = nextServerId(serverId);
@@ -199,8 +199,8 @@ public class Client {
                 server = null;
                 while(server == null) {
                     serverId = nextServerId(serverId);
-                    server = ConnectToServer.connect(ServerProperties.getBaseServerAddress(),
-                            ServerProperties.getBaseServerPort() + serverId, true);
+                    server = ConnectToServer.connect(SysFiles.getBaseServerAddress(),
+                            SysFiles.getBaseServerPort() + serverId, true);
                 }
                 returnValueRPC = server.submitCommandRPC(command);
             }
@@ -250,7 +250,7 @@ public class Client {
     // Cycle through server IDs
     public static int nextServerId(int serverId) {
         serverId++;
-        if(serverId > ServerProperties.getMaxServerCount()) {
+        if(serverId > SysFiles.getMaxServerCount()) {
             serverId = 1;
         }
         return serverId;

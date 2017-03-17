@@ -13,11 +13,14 @@ import java.rmi.RemoteException;
 public class Raftosk {
     //region Private Members
 
-    @Parameter(names = {"-admin", "-a"}, description = "If operating in client mode, act as an administrator")
-    private boolean clientTypeParam;
+    @Parameter(names = {"-admin", "-a"}, description = "Specify if operating as an administrator in client mode")
+    private boolean clientType;
 
-    @Parameter(names = {"-server", "-s"}, description = "Specify this server's id", validateWith = ServerIdValidation.class)
+    @Parameter(names = {"-id", "-i"}, description = "Specify this server's id", validateWith = ServerIdValidation.class)
     private int serverId;
+
+    @Parameter(names = {"-offline", "-o"}, description = "Specify if this server should be started as offline")
+    private boolean offline;
 
     @Parameter(names = {"-logging", "-l"}, description = "Choose verbosity level (OFF(0) - ALL(8)) of logging",
             validateWith = LogLevelValidation.class)
@@ -30,8 +33,9 @@ public class Raftosk {
     //region Constructors
 
     public Raftosk() {
-        clientTypeParam = false;
+        clientType = false;
         serverId = -1;
+        offline = false;
         logLevel = 3;
         raftoskType = RaftoskType.NULL;
     }
@@ -43,7 +47,7 @@ public class Raftosk {
     public static void main(String[] args) throws RemoteException {
         Raftosk raftosk = new Raftosk();
         String usage = "    raftosk [-s serverId] [-a] [-l logLevel]";
-        ServerProperties.readPropertiesFile("config.properties");
+        SysFiles.readPropertiesFile("config.properties");
 
         // Read in command line options
         try {
@@ -58,7 +62,7 @@ public class Raftosk {
         // Parse command line options, determine mode
         try {
             // Both options were specified, invalid
-            if(raftosk.serverId != -1 && raftosk.clientTypeParam) {
+            if((raftosk.serverId != -1 || raftosk.offline) && raftosk.clientType) {
                 System.out.println("Invalid or missing arguments. Usage:");
                 System.out.println(usage);
             }
@@ -67,7 +71,7 @@ public class Raftosk {
                 raftosk.raftoskType = RaftoskType.SERVER;
                 SysLog.setup(raftosk.logLevel, raftosk.raftoskType);
                 SysLog.logger.config("Operating in server mode, creating server object");
-                Server server = new Server(raftosk.serverId);
+                Server server = new Server(raftosk.serverId, raftosk.offline);
                 SysLog.logger.info("Initializing server " + raftosk.serverId);
                 if(server.initializeServer() == 1) {
                     SysLog.logger.finest("Exiting method");
@@ -78,7 +82,7 @@ public class Raftosk {
             // Operate in client mode
             else {
                 // Operate as an Administrator
-                if(raftosk.clientTypeParam) {
+                if(raftosk.clientType) {
                     raftosk.raftoskType = RaftoskType.ADMINISTRATOR;
                     SysLog.setup(raftosk.logLevel, raftosk.raftoskType);
                     SysLog.logger.config("Operating in client mode as an Administrator, creating Administrator object");

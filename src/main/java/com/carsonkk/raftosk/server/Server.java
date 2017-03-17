@@ -1,29 +1,30 @@
 package main.java.com.carsonkk.raftosk.server;
 
-import main.java.com.carsonkk.raftosk.global.ServerProperties;
+import main.java.com.carsonkk.raftosk.global.SysFiles;
 import main.java.com.carsonkk.raftosk.global.SysLog;
 
 import java.rmi.RemoteException;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 // Top-level server functionality
 public class Server {
     //region Private members
 
-    private final Lock ticketPoolLock = new ReentrantLock();
+    private final ReentrantLock ticketPoolLock = new ReentrantLock();
 
     private int serverId;
     private StateMachine stateMachine;
     private HandleRPC serverBinding;
     private int ticketPool;
+    private boolean offline;
 
     //endregion
 
     //region Constructors
 
-    public Server(int serverId) {
+    public Server(int serverId, boolean offline) {
         this.serverId = serverId;
+        this.offline = offline;
         this.stateMachine = new StateMachine(this);
         try {
             serverBinding = new HandleRPC(this);
@@ -31,9 +32,8 @@ public class Server {
         catch (RemoteException e) {
             SysLog.logger.severe("An issue occurred while creating the binding to the given RMI address/port: " +
                     e.getMessage());
-            //e.printStackTrace();
         }
-        this.ticketPool = ServerProperties.getIntialTicketPool();
+        this.ticketPool = SysFiles.getIntialTicketPool();
         SysLog.logger.finer("Created new server with server ID " + this.serverId);
     }
 
@@ -41,7 +41,7 @@ public class Server {
 
     //region Getters/Setters
 
-    public Lock getTicketPoolLock() {
+    public ReentrantLock getTicketPoolLock() {
         return this.ticketPoolLock;
     }
 
@@ -81,9 +81,21 @@ public class Server {
         }
 
         // Setup state to be a follower
-        synchronized (this.stateMachine.getCurrentState()) {
-            this.stateMachine.setCurrentState(StateType.FOLLOWER);
-            SysLog.logger.info("Set state machine role to FOLLOWER");
+        this.stateMachine.getCurrentStateLock().lock();
+        try
+        {
+            if(this.offline) {
+                this.stateMachine.setCurrentState(StateType.OFFLINE);
+                SysLog.logger.info("Set state machine role to OFFLINE");
+            }
+            else
+            {
+                this.stateMachine.setCurrentState(StateType.FOLLOWER);
+                SysLog.logger.info("Set state machine role to FOLLOWER");
+            }
+        }
+        finally {
+            this.stateMachine.getCurrentStateLock().unlock();
         }
 
         SysLog.logger.finest("Exiting method");
@@ -105,8 +117,6 @@ public class Server {
                 return;
             }
         }
-
-        //SysLog.logger.fine("Exiting method");
     }
 
     //endregion
