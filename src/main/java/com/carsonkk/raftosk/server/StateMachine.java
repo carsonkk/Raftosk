@@ -36,6 +36,7 @@ public class StateMachine {
     private Server server;
     private List<LogEntry> log;
     private List<Integer> nextIndexes;
+    private List<Integer> systemStatus;
     private StateType currentState;
     private int currentTerm;
     private int lastLogIndex;
@@ -56,6 +57,7 @@ public class StateMachine {
         this.server = null;
         this.log = new ArrayList<>();
         this.nextIndexes = new ArrayList<>();
+        this.systemStatus = new ArrayList<>();
         this.currentState = StateType.NULL;
         this.currentTerm = 0;
         this.lastLogIndex = 0;
@@ -73,9 +75,10 @@ public class StateMachine {
         dummyCommand.setUniqueId(new UUID(0, 0));
         log.add(new LogEntry(this.lastLogIndex, this.lastLogTerm, dummyCommand));
 
-        // Setup nextIndexes list, use for appending entries
+        // Setup nextIndexes and systemStatus lists, use for appending entries
         for(int i = 0; i < SysFiles.getMaxServerCount(); i++) {
             nextIndexes.add(this.lastLogIndex + 1);
+            systemStatus.add(1);
         }
 
         SysLog.logger.finer("Created new state machine");
@@ -462,6 +465,7 @@ public class StateMachine {
                         ret = null;
                         logActivity = false;
                         futureTaskList = new ArrayList<>();
+                        systemStatus.set(this.server.getServerId() - 1, 1);
 
                         // Determine whether to log activity based on rpc type
                         if (SysLog.level > 4) {
@@ -488,11 +492,12 @@ public class StateMachine {
                                         SysLog.logger.info("Server " + i +
                                                 " is currently offline, couldn't send append entries RPC");
                                     }
+                                    systemStatus.set(i - 1, 0);
                                     continue;
                                 }
 
                                 // Submit callable and add future to list
-                                if(this.nextIndexes.get(i - 1) <= this.lastLogIndex) {
+                                if(this.nextIndexes.get(i - 1) <= this.lastLogIndex || systemStatus.get(i - 1) == 0) {
                                     // Update old server with heartbeat containing log entries
                                     callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
                                             this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
@@ -504,7 +509,7 @@ public class StateMachine {
                                             this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
                                             null, this.commitIndex, this.nextIndexes);
                                 }
-
+                                systemStatus.set(i - 1, 1);
                                 FutureTask<ReturnValueRPC> futureTask = new FutureTask<>(callable);
                                 futureTaskList.add(futureTask);
                                 this.executorService.submit(futureTask);

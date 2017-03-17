@@ -90,29 +90,31 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         SysLog.logger.finest("Entering method");
         ReturnValueRPC returnValueRPC = new ReturnValueRPC();
 
-        this.server.getStateMachine().getCurrentStateLock().lock();
-        try {
-            switch (this.server.getStateMachine().getCurrentState()) {
-                case OFFLINE: {
-                    returnValueRPC.setValue(0);
-                    break;
-                }
-                case FOLLOWER: {
-                    returnValueRPC.setValue(1);
-                    break;
-                }
-                case CANDIDATE: {
-                    returnValueRPC.setValue(2);
-                    break;
-                }
-                case LEADER: {
-                    returnValueRPC.setValue(3);
-                    break;
+        returnValueRPC.setValue(0);
+        if(this.server.getStateMachine().getCurrentStateLock().tryLock()) {
+            try {
+                switch (this.server.getStateMachine().getCurrentState()) {
+                    case OFFLINE: {
+                        returnValueRPC.setValue(0);
+                        break;
+                    }
+                    case FOLLOWER: {
+                        returnValueRPC.setValue(1);
+                        break;
+                    }
+                    case CANDIDATE: {
+                        returnValueRPC.setValue(2);
+                        break;
+                    }
+                    case LEADER: {
+                        returnValueRPC.setValue(3);
+                        break;
+                    }
                 }
             }
-        }
-        finally {
-            this.server.getStateMachine().getCurrentStateLock().unlock();
+            finally {
+                this.server.getStateMachine().getCurrentStateLock().unlock();
+            }
         }
 
         SysLog.logger.finest("Exiting method");
