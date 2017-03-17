@@ -492,12 +492,12 @@ public class StateMachine {
                                 }
 
                                 // Submit callable and add future to list
-                                /*if(this.nextIndexes.get(i - 1) <= this.lastLogIndex) {
+                                if(this.nextIndexes.get(i - 1) <= this.lastLogIndex) {
                                     // Update old server with heartbeat containing log entries
                                     callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
                                             this.server.getServerId(), this.currentTerm, this.prevLogIndex, this.prevLogTerm,
                                             this.log, this.commitIndex, this.nextIndexes);
-                                }*/
+                                }
                                 else {
                                     // Send empty heartbeat
                                     callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServer,
@@ -547,14 +547,6 @@ public class StateMachine {
                                                 if(ret.getNextIndex() > this.nextIndexes.get(ret.getServerId() - 1)) {
                                                     this.nextIndexes.set(ret.getServerId() - 1, ret.getNextIndex());
                                                 }
-                                                if(ret.getNextIndexes() != null) {
-                                                    for(int i = 0; i < this.nextIndexes.size(); i++) {
-                                                        if(ret.getNextIndexes().get(i) > this.nextIndexes.get(i)) {
-                                                            this.nextIndexes.set(i, ret.getNextIndexes().get(i));
-                                                        }
-                                                    }
-                                                }
-
                                                 /*if(ret.getCommitIndex() != -1) {
                                                     this.nextIndexes.set(ret.getServerId() - 1, ret.getCommitIndex());
                                                 }*/

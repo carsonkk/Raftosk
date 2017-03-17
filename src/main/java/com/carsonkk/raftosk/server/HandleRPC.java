@@ -132,6 +132,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             this.server.getStateMachine().getLogLock().lock();
             try {
                 int successfulAppends = 0;
+                int serversUp = 1;
                 boolean exitWithoutUpdate = false;
                 List<FutureTask<ReturnValueRPC>> futureTaskList = new ArrayList<>();
                 Iterator<FutureTask<ReturnValueRPC>> futureTaskIterator;
@@ -214,7 +215,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                                 " is currently offline, couldn't send append entry RPC");
                                         continue;
                                     }
-
+                                    serversUp++;
                                     callable = new HandleRPC(this.server, RPCType.APPENDENTRIES, remoteServerToUpdate,
                                             this.server.getServerId(), this.server.getStateMachine().getCurrentTerm(),
                                             this.server.getStateMachine().getPrevLogIndex(),
@@ -229,7 +230,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             }
 
                             // Get a majority of append responses
-                            while (successfulAppends < SysFiles.getMajorityVote() &&
+                            while (successfulAppends != Math.min(serversUp, SysFiles.getMaxServerCount()) &&
                                     remoteReturnValueRPC != null) {
                                 try {
                                     futureTaskIterator = futureTaskList.iterator();
@@ -277,8 +278,9 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             }
 
                             // Succeeded in obtaining majority appends
-                            if (successfulAppends >= SysFiles.getMajorityVote()) {
+                            if (successfulAppends >= Math.min(serversUp, SysFiles.getMaxServerCount())) {
                                 SysLog.logger.info("Successfully executed the " + command.getCommandType() + " command");
+
                                 // Set the return value
                                 this.server.getStateMachine().setCommitIndex(index);
                                 returnValueRPC.setValue(this.server.getTicketPool());
@@ -322,8 +324,8 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                                         }
                                     }
                                 }
-                            }
 
+                            }
                         }
                         finally {
                             this.server.getTicketPoolLock().unlock();
@@ -515,9 +517,6 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     if(this.server.getStateMachine().getNextIndexes().get(i) < nextIndexes.get(i)) {
                         this.server.getStateMachine().getNextIndexes().set(i, nextIndexes.get(i));
                     }
-                    else if(this.server.getStateMachine().getNextIndexes().get(i) > nextIndexes.get(i)) {
-                        ret.getNextIndexes().set(i,this.server.getStateMachine().getNextIndexes().get(i));
-                    }
                 }
 
                 // Check if a newer leader exists
@@ -613,14 +612,43 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                             this.server.getStateMachine().setLeaderId(leaderId);
                             this.server.getStateMachine().setCurrentTerm(leaderTerm);
 
-                            // Incrementally update the log
-                            for(int i = this.server.getStateMachine().getLastLogIndex(); i < log.size(); i++) {
-                                this.server.getStateMachine().getLog().add(log.get(i));
-                                SysLog.logger.info("Appended new entry to old server at index " + i + " for term " +
-                                        log.get(i).getTerm());
+                            // Incrementally update the log and ticket pool
+                            this.server.getTicketPoolLock().lock();
+                            try {
+                                for(int i = 1; i < log.size(); i++) {
+                                    if(log.get(i).getCommand().getCommandType() == CommandType.BUY) {
+                                        this.server.setTicketPool(this.server.getTicketPool() -
+                                                log.get(i).getCommand().getTicketAmount());
+                                    }
+                                    this.server.getStateMachine().getLog().add(log.get(i));
+                                    SysLog.logger.info("Appended new entry to old server at index " + i + " for term " +
+                                            log.get(i).getTerm());
+                                }
+                            }
+                            finally {
+                                this.server.getTicketPoolLock().unlock();
                             }
 
-                            ret.setValue(this.server.getStateMachine().getCurrentTerm());
+                            // Update indexes
+                            this.server.getStateMachine().setPrevLogIndex(prevLogIndex);
+                            this.server.getStateMachine().setPrevLogTerm(prevLogTerm);
+                            this.server.getStateMachine().setLastLogIndex(this.server.getStateMachine().getLog().size() - 1);
+                            this.server.getStateMachine().setLastLogTerm(this.server.getStateMachine().getLog()
+                                    .get(this.server.getStateMachine().getLastLogIndex()).getTerm());
+                            this.server.getStateMachine().setCommitIndex(commitIndex);
+                            for(int i = 0; i < nextIndexes.size(); i++) {
+                                if(i == this.server.getServerId() - 1) {
+                                    this.server.getStateMachine().getNextIndexes().set(i,
+                                            this.server.getStateMachine().getLog().size());
+                                }
+                                else {
+                                    this.server.getStateMachine().getNextIndexes().set(i, nextIndexes.get(i));
+                                }
+                            }
+
+                            ret.setServerId(this.server.getServerId());
+                            ret.setNextIndex(this.server.getStateMachine().getLog().size());
+                            ret.setValue(-1);
                             ret.setCondition(true);
                         }
                     }
