@@ -102,9 +102,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         ReturnValueRPC remoteReturnValueRPC = new ReturnValueRPC();
         ReturnValueRPC returnValueRPC = new ReturnValueRPC();
 
-        this.server.getStateMachine().getCurrentStateLock().lock();
-        this.server.getStateMachine().getLeaderIdLock().lock();
-        this.server.getStateMachine().getLogLock().lock();
+        this.server.getStateMachine().getSystemStateLock().lock();
         try {
             // Check if this is the leader server
             if(this.server.getStateMachine().getCurrentState() == StateType.LEADER) {
@@ -113,12 +111,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                         SysLog.logger.info("Received BUY command for " + command.getTicketAmount() + " tickets");
 
                         this.server.getTicketPoolLock().lock();
-                        this.server.getStateMachine().getCurrentTermLock().lock();
-                        this.server.getStateMachine().getLastLogIndexLock().lock();
-                        this.server.getStateMachine().getLastLogTermLock().lock();
-                        this.server.getStateMachine().getPrevLogIndexLock().lock();
-                        this.server.getStateMachine().getPrevLogTermLock().lock();
-                        this.server.getStateMachine().getCommitIndexLock().lock();
+                        this.server.getStateMachine().getLogStateLock().lock();
                         try {
                             if(command.getTicketAmount() <= this.server.getTicketPool()) {
                                 // Update the ticket pool
@@ -210,12 +203,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                         }
                         finally {
                             this.server.getTicketPoolLock().unlock();
-                            this.server.getStateMachine().getCurrentTermLock().unlock();
-                            this.server.getStateMachine().getLastLogIndexLock().unlock();
-                            this.server.getStateMachine().getLastLogTermLock().unlock();
-                            this.server.getStateMachine().getPrevLogIndexLock().unlock();
-                            this.server.getStateMachine().getPrevLogTermLock().unlock();
-                            this.server.getStateMachine().getCommitIndexLock().unlock();
+                            this.server.getStateMachine().getLogStateLock().unlock();
                         }
                         break;
                     }
@@ -259,9 +247,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
             }
         }
         finally {
-            this.server.getStateMachine().getLogLock().unlock();
-            this.server.getStateMachine().getCurrentStateLock().unlock();
-            this.server.getStateMachine().getLeaderIdLock().unlock();
+            this.server.getStateMachine().getSystemStateLock().unlock();
         }
 
         SysLog.logger.finest("Exiting method");
@@ -276,10 +262,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         ReturnValueRPC ret = new ReturnValueRPC();
         boolean setToFollower = false;
 
-        this.server.getStateMachine().getCurrentStateLock().lock();
-        this.server.getStateMachine().getCurrentTermLock().lock();
-        this.server.getStateMachine().getVotedForLock().lock();
-        this.server.getStateMachine().getIsWaitingLock().lock();
+        this.server.getStateMachine().getSystemStateLock().lock();
         try {
             // Received a request from a candidate in a lower term, tell it to step down
             if(this.server.getStateMachine().getCurrentTerm() > candidateTerm) {
@@ -377,10 +360,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         }
         finally {
             SysLog.logger.info("before final unlock");
-            this.server.getStateMachine().getIsWaitingLock().unlock();
-            this.server.getStateMachine().getVotedForLock().unlock();
-            this.server.getStateMachine().getCurrentTermLock().unlock();
-            this.server.getStateMachine().getCurrentStateLock().unlock();
+            this.server.getStateMachine().getSystemStateLock().unlock();
             SysLog.logger.info("after final unlock");
         }
 
@@ -396,12 +376,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         ReturnValueRPC ret = new ReturnValueRPC();
         boolean setToFollower = false;
 
-        this.server.getStateMachine().getCurrentStateLock().lock();
-        this.server.getStateMachine().getCurrentTermLock().lock();
-        this.server.getStateMachine().getVotedForLock().lock();
-        this.server.getStateMachine().getCommitIndexLock().lock();
-        this.server.getStateMachine().getLeaderIdLock().lock();
-        this.server.getStateMachine().getIsWaitingLock().lock();
+        this.server.getStateMachine().getSystemStateLock().lock();
         try {
             // Log is null, heartbeat from leader server (typical case)
             if(log == null) {
@@ -425,41 +400,41 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                 }
                 // Update commit index if necessary
                 else {
-                    if(this.server.getStateMachine().getCommitIndex() < commitIndex) {
-                        // Update ticket pool if the command was a buy command
-                        this.server.getStateMachine().getLogLock().lock();
-                        this.server.getTicketPoolLock().lock();
-                        try {
-                            LogEntry entry = this.server.getStateMachine().getLog().get(commitIndex);
-                            if(entry == null) {
-                                SysLog.logger.warning("Detected commit index change for log entry not present in log");
-                            }
-                            else {
-                                this.server.getStateMachine().setCommitIndex(commitIndex);
-                                Command command = entry.getCommand();
-                                if(command.getCommandType() == CommandType.BUY) {
-                                    this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
+                    this.server.getStateMachine().getLogStateLock().lock();
+                    try {
+                        if(this.server.getStateMachine().getCommitIndex() < commitIndex) {
+                            // Update ticket pool if the command was a buy command
+                            this.server.getTicketPoolLock().lock();
+                            try {
+                                LogEntry entry = this.server.getStateMachine().getLog().get(commitIndex);
+                                if(entry == null) {
+                                    SysLog.logger.warning("Detected commit index change for log entry not present in log");
+                                }
+                                else {
+                                    this.server.getStateMachine().setCommitIndex(commitIndex);
+                                    Command command = entry.getCommand();
+                                    if(command.getCommandType() == CommandType.BUY) {
+                                        this.server.setTicketPool(this.server.getTicketPool() - command.getTicketAmount());
+                                    }
                                 }
                             }
+                            finally {
+                                this.server.getTicketPoolLock().unlock();
+                            }
                         }
-                        finally {
-                            this.server.getStateMachine().getLogLock().unlock();
-                            this.server.getTicketPoolLock().unlock();
-                        }
-                    }
 
-                    ret.setValue(-1);
-                    ret.setCondition(true);
+                        ret.setValue(-1);
+                        ret.setCondition(true);
+                    }
+                    finally {
+                        this.server.getStateMachine().getLogStateLock().unlock();
+                    }
                 }
 
                 SysLog.logger.fine("Heartbeat signal received from leader (server " + leaderId + ")");
             }
             else {
-                this.server.getStateMachine().getLogLock().lock();
-                this.server.getStateMachine().getLastLogIndexLock().lock();
-                this.server.getStateMachine().getLastLogTermLock().lock();
-                this.server.getStateMachine().getPrevLogIndexLock().lock();
-                this.server.getStateMachine().getPrevLogTermLock().lock();
+                this.server.getStateMachine().getLogStateLock().lock();
                 try {
                     // The leader's term is less than this server's term, set values to tell leader to step-down
                     if(leaderTerm < this.server.getStateMachine().getCurrentTerm()) {
@@ -500,11 +475,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
                     }
                 }
                 finally {
-                    this.server.getStateMachine().getLastLogIndexLock().unlock();
-                    this.server.getStateMachine().getLastLogTermLock().unlock();
-                    this.server.getStateMachine().getPrevLogIndexLock().unlock();
-                    this.server.getStateMachine().getPrevLogTermLock().unlock();
-                    this.server.getStateMachine().getLogLock().unlock();
+                    this.server.getStateMachine().getLogStateLock().unlock();
                 }
             }
 
@@ -530,12 +501,7 @@ public class HandleRPC extends UnicastRemoteObject implements RPCInterface, Call
         }
         finally {
             SysLog.logger.info("before final unlock");
-            this.server.getStateMachine().getCurrentTermLock().unlock();
-            this.server.getStateMachine().getCurrentStateLock().unlock();
-            this.server.getStateMachine().getVotedForLock().unlock();
-            this.server.getStateMachine().getCommitIndexLock().unlock();
-            this.server.getStateMachine().getLeaderIdLock().unlock();
-            this.server.getStateMachine().getIsWaitingLock().unlock();
+            this.server.getStateMachine().getSystemStateLock().unlock();
             SysLog.logger.info("after final unlock");
         }
 

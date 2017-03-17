@@ -17,18 +17,24 @@ public class StateMachine {
     //region Private Members
 
     // State machine locks
-    private final ReentrantLock logLock = new ReentrantLock();
-    private final ReentrantLock currentStateLock = new ReentrantLock();
-    private final ReentrantLock currentTermLock = new ReentrantLock();
-    private final ReentrantLock lastLogIndexLock = new ReentrantLock();
-    private final ReentrantLock lastLogTermLock = new ReentrantLock();
-    private final ReentrantLock prevLogIndexLock = new ReentrantLock();
-    private final ReentrantLock prevLogTermLock = new ReentrantLock();
-    private final ReentrantLock commitIndexLock = new ReentrantLock();
-    private final ReentrantLock votedForLock = new ReentrantLock();
-    private final ReentrantLock leaderIdLock = new ReentrantLock();
-    private final ReentrantLock isWaitingLock = new ReentrantLock();
-    private final Lock timeoutLock = new ReentrantLock();
+    private final ReentrantLock logStateLock = new ReentrantLock(true);
+    //private final ReentrantLock logLock = new ReentrantLock();
+    //private final ReentrantLock lastLogIndexLock = new ReentrantLock();
+    //private final ReentrantLock lastLogTermLock = new ReentrantLock();
+    //private final ReentrantLock prevLogIndexLock = new ReentrantLock();
+    //private final ReentrantLock prevLogTermLock = new ReentrantLock();
+    //private final ReentrantLock commitIndexLock = new ReentrantLock();
+
+
+
+    private final ReentrantLock systemStateLock = new ReentrantLock(true);
+    //private final ReentrantLock currentStateLock = new ReentrantLock();
+    //private final ReentrantLock currentTermLock = new ReentrantLock();
+    //private final ReentrantLock votedForLock = new ReentrantLock();
+    //private final ReentrantLock isWaitingLock = new ReentrantLock();
+    //private final ReentrantLock leaderIdLock = new ReentrantLock();
+
+    private final ReentrantLock timeoutLock = new ReentrantLock(true);
     private final Condition timeoutCondition = timeoutLock.newCondition();
 
     private Server server;
@@ -90,7 +96,7 @@ public class StateMachine {
 
     //region Getters/Setters
 
-    public ReentrantLock getLogLock() {
+    /*public ReentrantLock getLogLock() {
         return this.logLock;
     }
 
@@ -132,9 +138,17 @@ public class StateMachine {
 
     public ReentrantLock getIsWaitingLock(){
         return this.isWaitingLock;
+    }*/
+
+    public ReentrantLock getLogStateLock() {
+        return this.logStateLock;
     }
 
-    public Lock getTimeoutLock() {
+    public ReentrantLock getSystemStateLock() {
+        return this.systemStateLock;
+    }
+
+    public ReentrantLock getTimeoutLock() {
         return this.timeoutLock;
     }
 
@@ -253,31 +267,22 @@ public class StateMachine {
             case FOLLOWER: {
                 SysLog.logger.fine("Began execution in FOLLOWER state");
 
+                this.systemStateLock.lock();
                 this.timeoutLock.lock();
                 try {
-                    this.isWaitingLock.lock();
-                    try {
-                        this.isWaiting = true;
-                    }
-                    finally {
-                        this.isWaitingLock.unlock();
-                    }
+                    this.isWaiting = true;
+                    // Prevent deadlock
+                    this.systemStateLock.unlock();
 
                     electionTimeout = TimeUnit.MILLISECONDS.toNanos(getRandomElectionTimeout());
                     heartbeatReceived = timeoutCondition.await(electionTimeout, TimeUnit.NANOSECONDS);
                     SysLog.logger.info("woken up");
-                    this.isWaitingLock.lock();
-                    try {
-                        this.isWaiting = false;
-                    }
-                    finally {
-                        this.isWaitingLock.unlock();
-                    }
-                    SysLog.logger.info("wait up");
-                    this.currentStateLock.lock();
-                    this.votedForLock.lock();
+
+                    this.systemStateLock.lock();
                     SysLog.logger.info("other up");
                     try {
+                        this.isWaiting = false;
+
                         if (!heartbeatReceived) {
                             SysLog.logger.info("Timeout occurred, switching state from FOLLOWER to CANDIDATE");
                             this.currentState = StateType.CANDIDATE;
@@ -288,8 +293,7 @@ public class StateMachine {
                         }
                     }
                     finally {
-                        this.currentStateLock.unlock();
-                        this.votedForLock.unlock();
+                        this.systemStateLock.unlock();
                     }
                 }
                 catch (InterruptedException e) {
@@ -306,9 +310,7 @@ public class StateMachine {
             case CANDIDATE: {
                 SysLog.logger.fine("Began execution in CANDIDATE state");
 
-                this.currentStateLock.lock();
-                this.currentTermLock.lock();
-                this.votedForLock.lock();
+                this.systemStateLock.lock();
                 try {
                     // Make sure the server is still a candidate
                     if(this.currentState != StateType.CANDIDATE) {
@@ -346,9 +348,7 @@ public class StateMachine {
                     }
                 }
                 finally {
-                    this.currentStateLock.unlock();
-                    this.currentTermLock.unlock();
-                    this.votedForLock.unlock();
+                    this.systemStateLock.unlock();
                 }
 
                 // Set a maximum election timeout and attempt to get at least a majority of votes
@@ -366,7 +366,7 @@ public class StateMachine {
                                 SysLog.logger.info("Vote request completed with a value of " + ret.getValue() +
                                         " and a condition of " + ret.getCondition());
 
-                                this.currentTermLock.lock();
+                                this.systemStateLock.lock();
                                 try {
                                     if (ret.getCondition()) {
                                         votesReceived++;
@@ -377,15 +377,13 @@ public class StateMachine {
                                     futureTaskIterator.remove();
                                 }
                                 finally {
-                                    this.currentTermLock.unlock();
+                                    this.systemStateLock.unlock();
                                 }
                             }
                         }
 
                         // Handle stepping down if an existing candidate or leader was found
-                        this.currentStateLock.lock();
-                        this.currentTermLock.lock();
-                        this.votedForLock.lock();
+                        this.systemStateLock.lock();
                         try {
                             if (ret != null && ret.getValue() > this.currentTerm) {
                                 SysLog.logger.info("Discovered a higher term while requesting votes, stepping down");
@@ -397,9 +395,7 @@ public class StateMachine {
                             }
                         }
                         finally {
-                            this.currentStateLock.unlock();
-                            this.currentTermLock.unlock();
-                            this.votedForLock.unlock();
+                            this.systemStateLock.unlock();
                         }
                     }
                     catch (InterruptedException | ExecutionException e) {
@@ -420,7 +416,7 @@ public class StateMachine {
                 }
 
                 // Only check if still a candidate
-                this.currentStateLock.lock();
+                this.systemStateLock.lock();
                 try {
                     if (this.currentState == StateType.CANDIDATE && votesReceived >= ServerProperties.getMajorityVote()) {
                         SysLog.logger.info("Switching state from CANDIDATE to LEADER");
@@ -429,7 +425,7 @@ public class StateMachine {
                     }
                 }
                 finally {
-                    this.currentStateLock.unlock();
+                    this.systemStateLock.unlock();
                 }
 
                 SysLog.logger.fine("Finished execution in CANDIDATE state");
@@ -438,9 +434,7 @@ public class StateMachine {
             case LEADER: {
                 SysLog.logger.fine("Began execution in LEADER state");
 
-                this.currentStateLock.lock();
-                this.currentTermLock.lock();
-                this.votedForLock.lock();
+                this.systemStateLock.lock();
                 try {
                     // Make sure the server is still a leader
                     if(this.currentState != StateType.LEADER) {
@@ -494,60 +488,55 @@ public class StateMachine {
                     }
                 }
                 finally {
-                    this.currentStateLock.unlock();
-                    this.currentTermLock.unlock();
-                    this.votedForLock.unlock();
+                    this.systemStateLock.unlock();
                 }
 
                 // Set a maximum election timeout and attempt to get at least a majority of votes
                 electionTimeout = TimeUnit.MILLISECONDS.toNanos(ServerProperties.getHeartbeatFrequency());
-                while (electionTimeout > 0 && futureTaskList.size() > 0) {
+                while (electionTimeout > 0) {
                     // Start keeping track of time
                     startTime = System.nanoTime();
                     try {
                         futureTaskIterator = futureTaskList.iterator();
-                        while(futureTaskIterator.hasNext()) {
-                            FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
-                            if (futureTask.isDone()) {
-                                ret = futureTask.get();
-                                if(logActivity) {
-                                    SysLog.logger.info("Heartbeat completed with a value of " + ret.getValue() +
-                                            " and a condition of " + ret.getCondition());
-                                }
-
-                                this.currentTermLock.lock();
-                                try {
-                                    if (ret.getCondition() == false || ret.getValue() > this.currentTerm) {
-                                        break;
+                        if(futureTaskIterator.hasNext()) {
+                            while(futureTaskIterator.hasNext()) {
+                                FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
+                                if (futureTask.isDone()) {
+                                    ret = futureTask.get();
+                                    if(logActivity) {
+                                        SysLog.logger.info("Heartbeat completed with a value of " + ret.getValue() +
+                                                " and a condition of " + ret.getCondition());
                                     }
-                                    ret = null;
-                                    futureTaskIterator.remove();
-                                }
-                                finally {
-                                    this.currentTermLock.unlock();
+                                    this.systemStateLock.lock();
+                                    try {
+                                        if (ret.getCondition() == false || ret.getValue() > this.currentTerm) {
+                                            break;
+                                        }
+                                        ret = null;
+                                        futureTaskIterator.remove();
+                                    }
+                                    finally {
+                                        this.systemStateLock.unlock();
+                                    }
                                 }
                             }
-                        }
 
-                        // Handle stepping down if an existing candidate or leader was found
-                        this.currentStateLock.lock();
-                        this.currentTermLock.lock();
-                        this.votedForLock.lock();
-                        try {
-                            if (ret != null && ret.getValue() > this.currentTerm) {
-                                SysLog.logger.info("Discovered a server with a higher term, stepping down");
-                                this.currentTerm = ret.getValue();
-                                this.votedFor = -1;
-                                SysLog.logger.info("Switching state from LEADER to FOLLOWER");
-                                this.currentState = StateType.FOLLOWER;
-                                this.leaderId = -1;
-                                break;
+                            // Handle stepping down if an existing candidate or leader was found
+                            this.systemStateLock.lock();
+                            try {
+                                if (ret != null && ret.getValue() > this.currentTerm) {
+                                    SysLog.logger.info("Discovered a server with a higher term, stepping down");
+                                    this.currentTerm = ret.getValue();
+                                    this.votedFor = -1;
+                                    SysLog.logger.info("Switching state from LEADER to FOLLOWER");
+                                    this.currentState = StateType.FOLLOWER;
+                                    this.leaderId = -1;
+                                    break;
+                                }
                             }
-                        }
-                        finally {
-                            this.currentStateLock.unlock();
-                            this.currentTermLock.unlock();
-                            this.votedForLock.unlock();
+                            finally {
+                                this.systemStateLock.unlock();
+                            }
                         }
                     }
                     catch (InterruptedException | ExecutionException e) { }
@@ -557,15 +546,10 @@ public class StateMachine {
                     electionTimeout -= (endTime - startTime);
                 }
 
-                if(electionTimeout < 0) {
-
-                }
-
                 // Cancel any remaining calls
                 futureTaskIterator = futureTaskList.iterator();
                 while(futureTaskIterator.hasNext()) {
-                    FutureTask<ReturnValueRPC> futureTask = futureTaskIterator.next();
-                    futureTask.cancel(false);
+                    futureTaskIterator.next().cancel(false);
                 }
 
                 SysLog.logger.fine("Finished execution in LEADER state");

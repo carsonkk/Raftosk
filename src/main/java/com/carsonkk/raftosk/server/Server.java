@@ -11,7 +11,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class Server {
     //region Private members
 
-    private final Lock ticketPoolLock = new ReentrantLock();
+    private final ReentrantLock ticketPoolLock = new ReentrantLock(true);
 
     private int serverId;
     private StateMachine stateMachine;
@@ -41,7 +41,7 @@ public class Server {
 
     //region Getters/Setters
 
-    public Lock getTicketPoolLock() {
+    public ReentrantLock getTicketPoolLock() {
         return this.ticketPoolLock;
     }
 
